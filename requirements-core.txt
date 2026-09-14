@@ -1,0 +1,8 @@
+# Lightweight deps for CI (item 5 / D6 / Architecture finding 1).
+# Deliberately excludes torch/transformers/peft/datasets/fastapi/gradio — CI only
+# imports src/evaluate_core.py, which must never import a heavy ML dependency.
+# This file existing and staying short is the enforcement mechanism for that rule.
+
+pyyaml==6.0.2
+scikit-learn==1.5.2
+pytest==8.3.3

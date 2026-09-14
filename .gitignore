@@ -1,0 +1,29 @@
+# LoRA adapter checkpoints and training artifacts (Drive-only, per D5's transfer plan)
+checkpoints/
+*.safetensors
+*.bin
+*.pt
+
+# HF datasets/model cache
+.cache/
+**/datasets_cache/
+**/hf_cache/
+
+# Eval outputs (regenerated per run, not source of truth)
+eval_runs/
+*.jsonl.tmp
+
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/
+*.egg-info/
+.venv/
+venv/
+
+# Notebooks checkpoints
+.ipynb_checkpoints/
+
+# OS/editor
+.DS_Store
+.vscode/

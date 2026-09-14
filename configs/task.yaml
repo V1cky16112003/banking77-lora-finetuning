@@ -1,0 +1,45 @@
+# Single source of truth for the task definition (item 1 / D1).
+# train.py, evaluate.py, evaluate_core.py, and serve.py all load this file via
+# src/config.py so there is exactly one place that defines the label set and
+# prompt template.
+#
+# Scope cap (D1's 10x Check): config-driven generalization stops at this
+# single-label decoder-classification shape. Do not extend this schema to
+# support multi-label classification.
+
+task_name: banking77_intent_classification
+
+# Dataset revision pin (D11) — fill in after first load, before training.
+dataset:
+  hf_name: PolyAI/banking77
+  revision: null # TODO: pin exact HF dataset commit hash after first load
+
+# The 77 Banking77 intent labels, in the dataset's canonical order.
+# Populated from the dataset's `label` feature names at data-prep time —
+# placeholder here since the exact list must come from the loaded dataset,
+# not be hand-transcribed (avoids the class of error the design doc's
+# Approach A note already warned about: verify stats against the loaded
+# dataset before quoting them anywhere).
+labels: [] # TODO: populate from datasets.load_dataset("PolyAI/banking77").features["label"].names
+
+# Prompt template used identically for baseline (zero-shot/few-shot) and
+# fine-tuned evaluation, per the design doc's "prompt template consistency"
+# requirement — and, after the D7 reversal, for the live demo too, so the
+# demo matches the fine-tuning distribution exactly.
+prompt_template: |
+  You are a banking customer support intent classifier. Given a customer
+  message, respond with exactly one of the following intents: {label_list}
+
+  Customer message: {message}
+  Intent:
+
+# Few-shot baseline config (outside-voice E6) — resolved to a small fixed
+# total rather than deferred, to avoid unbounded prompt growth on top of the
+# already-large label list.
+few_shot:
+  total_examples: 12 # small fixed total, NOT one-per-class across 77 classes
+
+# Decoding config (outside-voice E4 for the eval loop, D4 for determinism)
+decoding:
+  do_sample: false # greedy, deterministic — required for "trust these numbers"
+  max_new_tokens: 24 # enough for one label string, not more

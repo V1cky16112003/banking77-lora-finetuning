@@ -1,0 +1,26 @@
+# Full environment for local serving (FastAPI + demo) and reference for Colab.
+#
+# torch pin strategy (outside-voice E4): pin transformers/peft strictly everywhere,
+# but do NOT force this torch pin on Colab — Colab ships a preinstalled torch build
+# matched to its CUDA version, and overriding it with a naive pip pin frequently
+# breaks that CUDA linkage. On Colab, install everything below EXCEPT torch (Colab's
+# preinstalled torch is already compatible). Locally, this torch pin targets CPU
+# serving; adjust to your local CUDA build if you have a local GPU.
+
+transformers==4.46.3
+peft==0.13.2
+torch==2.5.1
+datasets==3.1.0
+pyyaml==6.0.2
+scikit-learn==1.5.2
+fastapi==0.115.5
+uvicorn==0.32.1
+pydantic==2.9.2
+gradio==5.7.1
+pytest==8.3.3
+matplotlib==3.9.2
+
+# Dataset revision pin (D11) — verify this hash against the loaded dataset before
+# training; update here if PolyAI/banking77 is ever re-fetched intentionally.
+# PolyAI/banking77 revision: (pin the exact HF dataset commit hash used for the
+# frozen train/val/test split here once first loaded)

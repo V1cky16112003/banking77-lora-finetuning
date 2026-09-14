@@ -1,0 +1,22 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test-eval-core:
+    # Item 5 / D6: tests non-model logic only (label parsing, metrics,
+    # confusion ranking, config loading). No GPU, no model weights — GitHub
+    # Actions runners have neither, so evaluate.py's ML orchestration layer
+    # is deliberately NOT imported here.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install lightweight test dependencies
+        run: pip install -r requirements-core.txt
+      - name: Run pure-logic unit tests
+        run: python -m pytest tests/ -v
