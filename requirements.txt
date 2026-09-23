@@ -10,6 +10,7 @@
 transformers==4.46.3
 peft==0.13.2
 torch==2.5.1
+bitsandbytes==0.44.1  # QLoRA comparison arm (4-bit NF4) — Linux/Colab only, not needed for CPU serving
 datasets==3.1.0
 pyyaml==6.0.2
 scikit-learn==1.5.2

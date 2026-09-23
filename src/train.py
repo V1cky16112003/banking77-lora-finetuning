@@ -1,5 +1,11 @@
-"""LoRA fine-tuning (plain bf16 LoRA, per design doc premise 1 — no QLoRA needed
-for a 1.5B model on a T4). Run in Colab; not CI-testable (no GPU).
+"""LoRA fine-tuning. Primary method is plain bf16 LoRA (design doc premise 1 —
+no QLoRA needed for a 1.5B model on a T4 purely to fit VRAM). A 4th config adds
+QLoRA (4-bit NF4 + LoRA) as an explicit comparison arm, not because this model
+needs the memory savings, but to report the LoRA-vs-QLoRA quality/speed/memory
+trade-off directly — see docs/designs/lora-finetuning-banking-intent-classifier.md,
+"Decision Log" 2026-09-18 (office-hours premise challenge: 2026 job specs treat
+QLoRA as the default, so the README needs to show, not just argue, when plain
+LoRA is the better call). Run in Colab; not CI-testable (no GPU).
 
 Checkpoints to Google Drive after each epoch (design doc: "Colab session
 continuity"). Checks for an existing checkpoint before overwriting (finding
@@ -13,8 +19,8 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import torch
-from peft import LoraConfig, get_peft_model
-from transformers import AutoModelForCausalLM, AutoTokenizer, Trainer, TrainingArguments
+from peft import LoraConfig, get_peft_model, prepare_model_for_kbit_training
+from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig, Trainer, TrainingArguments
 
 from src.config import TaskConfig
 from src.data import BankingSplits
@@ -27,7 +33,8 @@ MODEL_NAME = "Qwen/Qwen2.5-1.5B-Instruct"
 
 @dataclass(frozen=True)
 class LoraRunConfig:
-    """One of the 2-3 candidate configs (design doc Technical Notes)."""
+    """One of the 4 candidate configs (design doc Technical Notes + the
+    2026-09-18 QLoRA-arm decision)."""
 
     name: str
     rank: int
@@ -37,12 +44,20 @@ class LoraRunConfig:
     epochs: int = 2
     batch_size: int = 4
     gradient_accumulation_steps: int = 4  # effective batch size ~16
+    use_qlora: bool = False  # 4-bit NF4 base + LoRA, instead of plain bf16 LoRA
 
 
 CANDIDATE_CONFIGS = [
     LoraRunConfig(name="r8_a16_qv", rank=8, alpha=16, target_modules=["q_proj", "v_proj"]),
     LoraRunConfig(name="r16_a16_qv", rank=16, alpha=16, target_modules=["q_proj", "v_proj"]),
     LoraRunConfig(name="r16_a32_all", rank=16, alpha=32, target_modules=["all-linear"]),
+    LoraRunConfig(
+        name="r16_a32_all_qlora",
+        rank=16,
+        alpha=32,
+        target_modules=["all-linear"],
+        use_qlora=True,
+    ),
 ]
 
 
@@ -78,13 +93,28 @@ def train_lora(
                 "learning_rate": run_config.learning_rate,
                 "epochs": run_config.epochs,
                 "batch_size": run_config.batch_size,
+                "use_qlora": run_config.use_qlora,
                 "train_examples": len(splits.train),
             }
         )
     )
 
     tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
-    model = AutoModelForCausalLM.from_pretrained(MODEL_NAME, torch_dtype=torch.bfloat16)
+
+    if run_config.use_qlora:
+        # 4-bit NF4 base weights (bitsandbytes) + LoRA adapters on top. Not
+        # needed to fit this 1.5B model on a T4 — this arm exists purely to
+        # produce a same-task LoRA-vs-QLoRA comparison for the README.
+        bnb_config = BitsAndBytesConfig(
+            load_in_4bit=True,
+            bnb_4bit_quant_type="nf4",
+            bnb_4bit_compute_dtype=torch.bfloat16,
+            bnb_4bit_use_double_quant=True,
+        )
+        model = AutoModelForCausalLM.from_pretrained(MODEL_NAME, quantization_config=bnb_config)
+        model = prepare_model_for_kbit_training(model)
+    else:
+        model = AutoModelForCausalLM.from_pretrained(MODEL_NAME, torch_dtype=torch.bfloat16)
 
     lora_config = LoraConfig(
         r=run_config.rank,

@@ -1,22 +1,29 @@
-# Banking Support Intent Classifier — LoRA Fine-Tuning
+# Banking Support Intent Classifier — LoRA/QLoRA Fine-Tuning
 
-**A rigorous before/after story: LoRA fine-tuning a 1.5B instruction model to classify banking customer-support messages, with a frozen held-out test set and honest, defensible numbers.**
+**An evaluation-first case study: a config-driven eval harness with a frozen held-out test set, used to compare LoRA vs. QLoRA fine-tuning of a 1.5B instruction model on banking customer-support intent classification — and to catch a real label-quality flaw in the dataset before it could corrupt the results.**
 
 ## Problem
 
-I was building an AI/ML Engineer CV for the London market (2026) and identified a gap through market research on job postings: no hands-on evidence of adapting a pretrained model's weights to a task. This project closes that gap with a concrete artifact — not a toy notebook, but a methodologically rigorous fine-tune with a frozen test set, a reusable eval harness, and a deployed demo.
+I was building an AI/ML Engineer CV for the London market (2026) and identified a gap through market research on job postings: no hands-on evidence of adapting a pretrained model's weights to a task. Fine-tuning a model is common; this project's actual differentiator is the discipline around it — a reusable, dataset-agnostic eval harness, a frozen test set that never leaks into hyperparameter selection, and a documented, evidence-based LoRA-vs-QLoRA comparison rather than a single unexamined training run. See `docs/designs/lora-finetuning-banking-intent-classifier.md` (Decision Log, 2026-09-18) for why this project leads with evaluation rigor over "I did fine-tuning" — a 2026 market check found that pitch alone is table stakes and Banking77 is a heavily reused dataset for it.
 
 ## Results
 
 *(Populate this table by running `scripts/generate_report.py` against the real eval output — never hand-copy these numbers.)*
 
-| Metric | Baseline (zero-shot) | Baseline (few-shot) | Fine-tuned (LoRA) |
-|---|---|---|---|
-| Accuracy | — | — | — |
-| Macro-F1 (95% CI) | — | — | — |
-| Latency/call (CPU) | — | — | — |
+| Metric | Baseline (zero-shot) | Baseline (few-shot) | Fine-tuned (LoRA) | Fine-tuned (QLoRA) |
+|---|---|---|---|---|
+| Accuracy | — | — | — | — |
+| Macro-F1 (95% CI) | — | — | — | — |
+| Latency/call (CPU) | — | — | — | — |
+| Peak train VRAM | n/a | n/a | — | — |
 
 *Confusion heatmap and per-class F1 table generated at `eval_runs/report/`. Note: confusion-pair counts rest on ~40 test examples/class on average (Banking77's 3,080-example test split ÷ 77 classes) — read pair rankings as illustrative, not statistically precise.*
+
+## Dataset Integrity Check
+
+Banking77 has a known label-quality flaw: some labels are aggregations that include off-topic examples (e.g. `card_about_to_expire` reportedly contains ~30 examples actually about ordering a new card for China, not expiry). Before training, `src/data.py`'s split step must log the loaded per-class counts and flag any label whose examples look inconsistent on manual spot-check, so this is caught and documented here — not discovered after the fact by an interviewer who knows the dataset.
+
+*(Fill in after running the real data-prep step: per-class counts verified, any label-noise findings, and how they were handled — exclude, note as a limitation, or re-split.)*
 
 ## The Reusable Eval Harness
 
@@ -24,9 +31,9 @@ I was building an AI/ML Engineer CV for the London market (2026) and identified 
 
 ## Training Configuration
 
-- **Model:** Qwen2.5-1.5B-Instruct (open-weight, small enough for plain bf16 LoRA on a free Colab T4 — no QLoRA/4-bit quantization needed).
-- **Method:** LoRA via HF `peft` + `transformers` (not QLoRA — see the design doc's premise 1 for why).
-- **Configs compared (3):** r=8/α=16 (`q_proj,v_proj`), r=16/α=16 (`q_proj,v_proj`), r=16/α=32 (`all-linear`). Shared schedule: LR 1e-4 to 2e-4, 2-3 epochs, effective batch size ~16-32.
+- **Model:** Qwen2.5-1.5B-Instruct (open-weight, small enough for plain bf16 LoRA on a free Colab T4 — 4-bit quantization is not *required* to fit this model size, which is exactly why it's worth comparing against, not assuming).
+- **Method:** 3 plain bf16 LoRA configs via HF `peft` + `transformers`, plus 1 QLoRA config (4-bit NF4 base + LoRA, via `bitsandbytes`) as a direct same-task comparison arm — added specifically because 2026 job specs treat QLoRA as the default fine-tuning method, so this project shows the trade-off instead of just asserting plain LoRA is sufficient at this model size.
+- **Configs compared (4):** r=8/α=16 bf16 (`q_proj,v_proj`), r=16/α=16 bf16 (`q_proj,v_proj`), r=16/α=32 bf16 (`all-linear`), r=16/α=32 QLoRA (`all-linear`, 4-bit NF4). Shared schedule: LR 1e-4 to 2e-4, 2-3 epochs, effective batch size ~16-32.
 - **Decoding:** greedy (`do_sample=False`) for all scoring — deterministic, reproducible numbers.
 - **Label resolution:** constrained decoding (`PrefixConstrainedLogitsProcessor`) restricts generation to the label set; exact/fuzzy-match fallback covers only constraint-initialization failure, not "malformed constrained output" (which can't occur when the constraint applies).
 - **Hardware:** free-tier Google Colab T4 (16GB VRAM) for training/eval; local machine (CPU) for serving.
@@ -35,6 +42,12 @@ I was building an AI/ML Engineer CV for the London market (2026) and identified 
 ## What Worked / What Didn't
 
 *(Fill in honestly after running the real experiment — this is the section that makes the before/after story credible in an interview.)*
+
+## Architecture
+
+![Architecture diagram](diagrams/architecture.png)
+
+Source: `diagrams/architecture.mmd` (Mermaid) — re-render with the `/diagram` skill after editing, or edit `diagrams/architecture.excalidraw` directly at excalidraw.com (note: it's a single flattened image, not per-node editable, since Mermaid subgraphs don't convert to native Excalidraw elements).
 
 ## Repo Structure
 
@@ -80,4 +93,4 @@ pytest tests/ -v
 
 ## Design Process
 
-The full design doc, CEO scope review, engineering review, and design review — including every decision and its rationale — live in `docs/designs/lora-finetuning-banking-intent-classifier.md` and the linked review artifacts.
+The full design doc, CEO scope review, engineering review, and design review — including every decision and its rationale — live in `docs/designs/lora-finetuning-banking-intent-classifier.md` and the linked review artifacts. `LOGBOOK.md` is the running, chronological record of every decision, scope change, and milestone across the project's lifetime, plus a live "what's done / what's next" snapshot.

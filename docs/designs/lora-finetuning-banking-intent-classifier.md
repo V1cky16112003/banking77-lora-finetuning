@@ -21,15 +21,15 @@ A rigorous, honest before/after story: a 1.5B instruction model that's mediocre 
 - Single narrow, measurable classification task with a public dataset.
 - Finishable in 1-2 weeks; non-trivial enough that fine-tuning visibly beats prompting.
 - Held-out test set frozen before training/hyperparameter selection — never touched until final evaluation.
-- Out of scope: full fine-tuning, multi-GPU/distributed training, large hyperparameter sweeps (2-3 documented configs only).
+- Out of scope: full fine-tuning, multi-GPU/distributed training, large hyperparameter sweeps (4 documented configs only — 3 bf16 LoRA + 1 QLoRA, revised 2026-09-18, see Decision Log).
 
 ## Premises
 
-1. Plain LoRA (bf16, HF `peft`+`transformers`) is the primary fine-tuning method; QLoRA/bitsandbytes is an optional documented stretch, not required. **Why:** for a 1-3B model, plain LoRA fits a free T4's 16GB without 4-bit quantization — simpler, faster, no quantization-induced quality loss. QLoRA's "always use it on Colab" default in current guides is calibrated for 7B+ models.
+1. Plain LoRA (bf16, HF `peft`+`transformers`) is the primary fine-tuning method for 3 of the 4 configs; QLoRA/bitsandbytes is a required 4th comparison arm, not an optional stretch (revised 2026-09-18 — see Decision Log). **Why:** for a 1-3B model, plain LoRA fits a free T4's 16GB without 4-bit quantization — simpler, faster, no quantization-induced quality loss. QLoRA's "always use it on Colab" default in current guides is calibrated for 7B+ models. But 2026 London job specs list QLoRA as the default PEFT method regardless of model size, so the project needs to *show* the LoRA-vs-QLoRA trade-off on this task rather than only argue it in prose.
 2. The task is adapted via the decoder-only instruction model generating the label directly, not a BERT-style encoder classifier head. **Why:** matches "LLM fine-tuning" as it appears in 2026 AI/ML Engineer job specs — the specific gap being closed — rather than classic encoder fine-tuning.
 3. The held-out test set is built once, frozen before any training or hyperparameter selection, and reused identically for baseline and fine-tuned evaluation.
 4. Deployment is a single local FastAPI endpoint for demo purposes — no auth, no scaling, no production infra.
-5. Scope stays inside one free-tier Colab T4 GPU, one task, and 2-3 documented hyperparameter configs.
+5. Scope stays inside one free-tier Colab T4 GPU, one task, and 4 documented hyperparameter configs (revised 2026-09-18, see Decision Log).
 
 ## Approaches Considered
 
@@ -50,28 +50,35 @@ LoRA-tune Qwen2.5-1.5B-Instruct to output structured JSON (`category`, `urgency`
 
 - Exact prompt format for zero-shot/few-shot baseline (how many few-shot examples, how the 77-class label list is presented to the model) — to be decided during baseline implementation, not a design-level blocker.
 - Whether to subsample Banking77's ~13k training examples down to "hundreds" per the original brief, or use the full training set — leaning toward a few thousand for a cleaner LoRA signal, to confirm during data-prep step.
-- QLoRA stretch comparison: attempt only if the primary LoRA path finishes with time to spare in the 1-2 week window.
+- ~~QLoRA stretch comparison: attempt only if the primary LoRA path finishes with time to spare in the 1-2 week window.~~ Resolved 2026-09-18: promoted from stretch to a required 4th comparison arm — see Decision Log.
 
 ## Technical Notes (implementation anchors)
 
 - **Label parsing:** the model generates free text but must resolve to one of 77 canonical labels. Primary approach: restrict generation to the label set via a custom `PrefixConstrainedLogitsProcessor` in `transformers` (or the `outlines` library if a higher-level API is preferred); fall back to exact-match on the generated string with a fuzzy-match-to-nearest-label safety net, and count anything left unresolved as incorrect (never silently dropped from the denominator). Apply the same parsing mechanism uniformly to zero-shot/few-shot baseline eval and fine-tuned eval, so the comparison isn't confounded by different parsing strategies.
 - **Metric aggregation:** report macro-F1 as the headline metric (treats all 77 classes equally regardless of size); include the full per-class F1 breakdown as an appendix table in the README.
-- **Starting LoRA configs (2-3 to compare, per the hyperparameter-sweep cap):** (1) r=8, alpha=16, target `q_proj,v_proj`; (2) r=16, alpha=16, target `q_proj,v_proj`; (3) r=16, alpha=32, target `all-linear`. Shared starting schedule for all three: learning rate 1e-4 to 2e-4, 2-3 epochs, batch size 4-8 with gradient accumulation to reach an effective batch size of ~16-32 (T4-appropriate; tune empirically during implementation). Pick the best on validation, confirm once on the held-out test set. Fix a random seed for the train/val split and training run; results are single-run (state this as a known limitation, not re-run across seeds, given portfolio scope).
+- **Starting LoRA configs (4 to compare — 3 bf16 LoRA + 1 QLoRA, per the 2026-09-18 revision):** (1) r=8, alpha=16, target `q_proj,v_proj`, bf16; (2) r=16, alpha=16, target `q_proj,v_proj`, bf16; (3) r=16, alpha=32, target `all-linear`, bf16; (4) r=16, alpha=32, target `all-linear`, **QLoRA** (4-bit NF4 base via `bitsandbytes`, `prepare_model_for_kbit_training`). Config (4) mirrors config (3)'s rank/alpha/targets so the LoRA-vs-QLoRA delta isolates the quantization effect, not a hyperparameter difference. Shared starting schedule for all four: learning rate 1e-4 to 2e-4, 2-3 epochs, batch size 4-8 with gradient accumulation to reach an effective batch size of ~16-32 (T4-appropriate; tune empirically during implementation). Pick the best bf16 config on validation, confirm once on the held-out test set; report the QLoRA arm's accuracy/macro-F1/train-VRAM/wall-clock alongside it as a same-task comparison, not a competing "best" candidate. Fix a random seed for the train/val split and training run; results are single-run (state this as a known limitation, not re-run across seeds, given portfolio scope).
 - **Prompt template consistency:** the fine-tuned model is trained and evaluated on the same instruction template used for the baseline's zero-shot/few-shot prompts (label list + task instruction), so the before/after comparison isolates the effect of the weight update, not a prompt-format change.
 - **Colab session continuity:** checkpoint LoRA adapter weights to Google Drive after each epoch (training runs are short given Banking77's size, so per-epoch is sufficient granularity) so a disconnect/idle-timeout doesn't lose progress. If daily GPU-hour quota runs out mid-project, spread remaining runs across days or fall back to Kaggle's free T4/P100 quota.
 - **Local deployment hardware:** FastAPI endpoint runs on the user's local machine (CPU unless a local GPU is available); when comparing latency/memory against the base model, load one model at a time rather than both simultaneously to avoid conflating results with double memory pressure. CPU-only serving of a 1.5B model will be multi-second per response — document this as a "works but slow" demo, not a production-latency claim.
-- **Eval loop wall-clock budget:** generating a label per example with all 77 labels enumerated in the prompt means long prompts and non-trivial per-call decoding cost. Running this across the validation set for 3 LoRA configs plus zero-shot/few-shot baselines plus one final test-set run adds up to a meaningful number of generation passes — budget time for the eval loop itself, not just training.
-- **Validation split:** stratified sample from Banking77's training data (not the held-out test set), sized at roughly 10-15% of the training data — enough to compare 3 LoRA configs without eating into the training signal.
+- **Eval loop wall-clock budget:** generating a label per example with all 77 labels enumerated in the prompt means long prompts and non-trivial per-call decoding cost. Running this across the validation set for 4 configs (3 LoRA + 1 QLoRA) plus zero-shot/few-shot baselines plus one final test-set run adds up to a meaningful number of generation passes — budget time for the eval loop itself, not just training.
+- **Validation split:** stratified sample from Banking77's training data (not the held-out test set), sized at roughly 10-15% of the training data — enough to compare 4 configs without eating into the training signal.
+- **Dataset integrity check:** Banking77 has a documented label-quality flaw — some labels are aggregations containing off-topic examples (e.g. `card_about_to_expire` reportedly includes ~30 examples about ordering a replacement card for China, not expiry). During the data-prep step, log per-class counts and spot-check a sample of each label's examples for topical consistency; document any findings (and how they were handled) in the README's Dataset Integrity Check section. This turns a known dataset flaw into evidence of rigor instead of an unaddressed gap an interviewer could surface.
 
 ## Success Criteria
 
-- Working fine-tuned model with saved LoRA adapter weights.
+- Working fine-tuned model with saved LoRA adapter weights (3 bf16 configs + 1 QLoRA config).
 - Baseline (zero-shot + few-shot) and fine-tuned results on the same frozen held-out Banking77 test set, reported as accuracy + macro-F1 (headline) with per-class F1 in an appendix — see Technical Notes for why aggregation choice matters with 77 classes.
+- LoRA-vs-QLoRA comparison on the identical task/config (rank/alpha/target modules held constant): accuracy/macro-F1 delta, peak training VRAM, and wall-clock time — the direct answer to "why didn't you use QLoRA" for this model size.
 - Documented LoRA config (rank, alpha, target modules, batch size, epochs), training wall-clock time, and hardware.
 - Loss curve chart from training.
+- Dataset integrity check documented: per-class counts verified against the loaded dataset, any label-noise findings from spot-checking, and how they were handled.
 - Qualitative examples of failures the fine-tune fixed, and any honest regressions noted.
 - Deployed FastAPI endpoint serving the fine-tuned model, with documented inference latency/memory vs. base model. **Risk note:** this is the one Success Criterion most tangential to the actual skill gap being closed (fine-tuning, not deployment engineering) — if the 1-2 week budget gets tight, downgrade this to stretch before cutting anything from the fine-tuning/eval rigor, since the core CV story (frozen test set, before/after numbers, README) survives without a live endpoint.
 - README with problem framing, results table, training config, hardware/cost, and what worked/didn't — linkable from the CV, readable in under 2 minutes.
+
+## Architecture Diagram
+
+`diagrams/architecture.png` (source: `diagrams/architecture.mmd`) — added 2026-09-21, showing the Config/Data/Training/Evaluation/Serving/Reporting layer split and data flow described in this doc. Also embedded in the README.
 
 ## Distribution Plan
 
@@ -79,14 +86,27 @@ Web service (FastAPI) for the interview demo — no packaging/registry distribut
 
 ## Next Steps
 
-1. Set up the Colab notebook: load Qwen2.5-1.5B-Instruct, install HF `transformers`+`peft`, load `PolyAI/banking77`.
-2. Build the frozen train/val/held-out-test split from Banking77 (test set touched only at final eval).
+1. Set up the Colab notebook: load Qwen2.5-1.5B-Instruct, install HF `transformers`+`peft`+`bitsandbytes`, load `PolyAI/banking77`.
+2. Build the frozen train/val/held-out-test split from Banking77 (test set touched only at final eval); log per-class counts and spot-check for label noise (Dataset Integrity Check).
 3. Run zero-shot and few-shot baseline evaluation on the held-out test set; record accuracy, per-class F1, and per-call latency.
-4. Configure and run LoRA fine-tuning (document rank/alpha/target modules/batch size/epochs); save the loss curve chart.
-5. Re-evaluate the fine-tuned model on the identical held-out test set; compute the delta and collect qualitative failure examples.
-6. (Stretch) Run a QLoRA comparison if time allows.
-7. (Downgrade to stretch if behind schedule — see Success Criteria risk note) Wrap the fine-tuned model in a FastAPI endpoint; measure latency/memory vs. base model.
-8. Write the README (problem framing, results table, config, hardware/cost, what worked/didn't).
+4. Configure and run all 4 fine-tuning configs — 3 bf16 LoRA + 1 QLoRA (document rank/alpha/target modules/batch size/epochs/quantization for each); save loss curve charts and peak-VRAM/wall-clock per config.
+5. Re-evaluate the fine-tuned models on the identical held-out test set; compute deltas (including the LoRA-vs-QLoRA comparison) and collect qualitative failure examples.
+6. (Downgrade to stretch if behind schedule — see Success Criteria risk note) Wrap the best fine-tuned model in a FastAPI endpoint; measure latency/memory vs. base model.
+7. Write the README (evaluation-first problem framing, results table incl. QLoRA column, dataset integrity findings, config, hardware/cost, what worked/didn't).
+
+## Decision Log
+
+### 2026-09-18 — Post-approval premise challenge (`/office-hours` grill session)
+
+With the scaffold already built and tests passing, the design was re-examined against fresh 2026 London AI/ML market data before the real training run, rather than treating design-approval as final. Findings and the resulting scope change:
+
+- **Grill finding 1 — QLoRA gap:** London job specs list QLoRA as the default PEFT method, independent of model size; this project's Premise 1 (plain LoRA only) would read as a gap, not a choice, unless defended with data. **Resolution:** promoted QLoRA from "optional stretch" (original Open Question) to a required 4th comparison config (`r16_a32_all_qlora` in `src/train.py`), run on identical rank/alpha/target modules to the best bf16 config so the comparison isolates the quantization effect.
+- **Grill finding 2 — Banking77 saturation:** Banking77 + LoRA is a common existing portfolio pattern (multiple public repos already do FLAN-T5/RoBERTa/DeBERTa + LoRA/BERT on this exact dataset). The dataset choice itself was deliberately safe (see Approach A rationale) and isn't being changed — re-litigating it now would reintroduce the dataset/eval risk Approaches B and C were rejected for. **Resolution:** differentiation is pushed entirely into execution rigor, not dataset novelty (see finding 3).
+- **Grill finding 3 — Banking77 label-noise flaw:** published critiques note some Banking77 labels are aggregations with off-topic examples (e.g. `card_about_to_expire`). Left undetected, this is exactly the kind of gap that punctures a "defend every number" pitch in an interview. **Resolution:** added an explicit Dataset Integrity Check step (Technical Notes, Success Criteria, Next Steps #2) and a README section — turning a known dataset flaw into demonstrated rigor instead of an unaddressed risk.
+- **Grill finding 4 — CPU demo latency as a liability:** unchanged from the original risk note (FastAPI/demo remains the first thing to cut or downgrade to a recorded artifact if the live multi-second CPU latency undermines the interview experience); no scope change, just reconfirmed.
+- **README pitch reframed:** the project's headline claim shifted from "I fine-tuned a model" (now a common, low-differentiation claim per market check) to "I built a config-driven eval harness with a frozen-test-set methodology that caught a real dataset flaw and produced an evidence-based LoRA-vs-QLoRA comparison." Same underlying work; the framing leads with what's actually rare.
+
+Options considered and not taken: (B) swap Banking77 for a less-genericized dataset — rejected, reintroduces label-quality/effort risk the original design explicitly avoided, no slack in timeline to absorb it.
 
 ## What I noticed about how you think
 

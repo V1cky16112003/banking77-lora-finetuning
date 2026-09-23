@@ -1,0 +1,70 @@
+graph LR
+    subgraph CONFIG["Config Layer"]
+        TASKYAML["configs/task.yaml<br/>labels, prompt template,<br/>decoding config"]
+        CONFIGPY["src/config.py<br/>TaskConfig loader"]
+        TASKYAML --> CONFIGPY
+    end
+
+    subgraph DATA["Data Layer"]
+        RAWDS["PolyAI/banking77<br/>(HF dataset)"]
+        DATAPY["src/data.py<br/>frozen train/val/test split<br/>+ dataset integrity check<br/>(label-noise spot-check)"]
+        RAWDS --> DATAPY
+    end
+
+    subgraph TRAIN["Training Layer (Colab / T4 GPU)"]
+        BASEMODEL["Qwen2.5-1.5B-Instruct"]
+        TRAINPY["src/train.py<br/>4 configs:<br/>3x bf16 LoRA + 1x QLoRA<br/>(bitsandbytes NF4)"]
+        CKPT["Saved LoRA adapter<br/>checkpoints (Drive)"]
+        BASEMODEL --> TRAINPY
+        TRAINPY --> CKPT
+    end
+
+    subgraph EVAL["Evaluation Layer"]
+        EVALCORE["src/evaluate_core.py<br/>pure eval logic:<br/>label parsing, metrics,<br/>confusion ranking<br/>(CI-tested, no ML deps)"]
+        EVALPY["src/evaluate.py<br/>ML orchestration:<br/>constrained decoding,<br/>batched generation"]
+        EVALJSON["eval_runs/*.jsonl<br/>baseline + fine-tuned results"]
+        EVALPY --> EVALCORE
+        EVALCORE --> EVALJSON
+    end
+
+    subgraph SERVE["Serving Layer (local)"]
+        SERVEPY["src/serve.py<br/>FastAPI /predict"]
+        DEMOAPP["demo/app.py<br/>Gradio UI"]
+        SMOKETEST["scripts/smoke_test.py<br/>post-deploy verification"]
+        SERVEPY --> DEMOAPP
+        SMOKETEST --> SERVEPY
+    end
+
+    subgraph REPORT["Reporting"]
+        GENREPORT["scripts/generate_report.py<br/>results table, confusion<br/>heatmap, bootstrap CI"]
+        README["README.md results table"]
+        GENREPORT --> README
+    end
+
+    subgraph ORCH["Orchestration"]
+        NOTEBOOK["notebooks/colab_orchestration.ipynb"]
+    end
+
+    subgraph CI["CI (GitHub Actions)"]
+        TESTS["tests/<br/>test_config.py<br/>test_evaluate_core.py"]
+    end
+
+    CONFIGPY --> DATAPY
+    CONFIGPY --> TRAINPY
+    CONFIGPY --> EVALPY
+    CONFIGPY --> SERVEPY
+
+    DATAPY --> TRAINPY
+    DATAPY --> EVALPY
+
+    CKPT --> EVALPY
+    CKPT --> SERVEPY
+
+    EVALJSON --> GENREPORT
+
+    NOTEBOOK --> DATAPY
+    NOTEBOOK --> TRAINPY
+    NOTEBOOK --> EVALPY
+
+    TESTS --> EVALCORE
+    TESTS --> CONFIGPY
