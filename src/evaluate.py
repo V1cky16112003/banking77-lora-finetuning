@@ -95,15 +95,13 @@ def evaluate_dataset(
     a disconnect resumes from the last written line instead of restarting
     the whole pass (E2)."""
     already_done = 0
+    results: list[tuple[str, str | None]] = []
     if predictions_path.exists():
         with predictions_path.open("r", encoding="utf-8") as f:
-            already_done = sum(1 for _ in f)
-
-    results: list[tuple[str, str | None]] = []
-    with predictions_path.open("r", encoding="utf-8") as f:
-        for line in f:
-            record = json.loads(line)
-            results.append((record["true_label"], record["predicted_label"]))
+            for line in f:
+                record = json.loads(line)
+                results.append((record["true_label"], record["predicted_label"]))
+        already_done = len(results)
 
     remaining = examples[already_done:]
 
