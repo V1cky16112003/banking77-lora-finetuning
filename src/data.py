@@ -33,17 +33,20 @@ class BankingSplits:
 
 
 def load_banking77_splits(config: TaskConfig) -> BankingSplits:
-    """Load Banking77 and carve the frozen train/val/test split.
-
-    Populates config.labels the first time this runs, if it was left empty —
-    callers should persist the returned `labels` (and `dataset_revision`)
-    back into configs/task.yaml so the label list and dataset pin (D11) are
-    never hand-transcribed, per the design doc's Approach A verification note.
-    """
-    dataset: DatasetDict = load_dataset(config.dataset_hf_name, revision=config.dataset_revision)
+    """Load Banking77 at the pinned revision and carve the frozen
+    train/val/test split. Fails fast if configs/task.yaml's label list
+    doesn't exactly match the loaded dataset's."""
+    # Banking77 is a loading-script dataset. Trusting its code is bounded by
+    # the revision pin: only the script at that exact commit ever runs.
+    dataset: DatasetDict = load_dataset(
+        config.dataset_hf_name, revision=config.dataset_revision, trust_remote_code=True
+    )
 
     label_names = dataset["train"].features["label"].names
-    if config.labels and config.labels != label_names:
+    # An empty label list silently breaks everything downstream (empty prompt
+    # label list, constrained decoding with nothing to constrain to), so an
+    # empty config is treated as a mismatch too.
+    if config.labels != label_names:
         raise ValueError(
             "configs/task.yaml's `labels` list does not match the loaded dataset's "
             "label names. Re-verify and update the config rather than silently "
@@ -64,8 +67,5 @@ def load_banking77_splits(config: TaskConfig) -> BankingSplits:
         val=val_split,
         test=dataset["test"],  # Banking77's own test split — frozen, untouched until final eval
         labels=label_names,
-        dataset_revision=getattr(dataset["train"], "info", None)
-        and dataset["train"].info.version
-        and str(dataset["train"].info.version)
-        or config.dataset_revision,
+        dataset_revision=config.dataset_revision,
     )

@@ -3,7 +3,8 @@ from saved eval JSONL output (item 2, item 3, outside-voice E1). Avoids
 hand-copying numbers into the README — eliminates transcription errors
 between what the eval harness measured and what the README claims.
 
-Usage: python scripts/generate_report.py <predictions.jsonl> --labels-config configs/task.yaml
+Usage (from the repo root, so `src` is importable):
+    python -m scripts.generate_report <predictions.jsonl> --output-dir eval_runs/report
 """
 from __future__ import annotations
 

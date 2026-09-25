@@ -12,12 +12,13 @@ import requests
 
 API_URL = "http://127.0.0.1:8000/predict"
 
-# A few known Banking77 examples with their expected intent. Fill in with
-# real examples + expected labels once the fine-tuned model is trained —
-# these are illustrative placeholders matching the dataset's style.
+# Expected labels must be real Banking77 labels (see configs/task.yaml).
 KNOWN_EXAMPLES = [
-    {"message": "I lost my card, what should I do?", "expected_label": "card_lost"},
-    {"message": "My balance hasn't updated after a transfer.", "expected_label": "balance_not_updated"},
+    {"message": "I lost my card, what should I do?", "expected_label": "lost_or_stolen_card"},
+    {
+        "message": "My balance hasn't updated after a bank transfer.",
+        "expected_label": "balance_not_updated_after_bank_transfer",
+    },
 ]
 
 

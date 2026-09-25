@@ -8,8 +8,10 @@ that never persists raw input text (3B).
 from __future__ import annotations
 
 import logging
+import os
 import sys
 import time
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 import torch
@@ -27,8 +29,6 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(mess
 logger = logging.getLogger(__name__)
 
 _MAX_MESSAGE_LENGTH = 500
-
-app = FastAPI(title="Banking Support Intent Classifier")
 
 _config = None
 _model = None
@@ -71,6 +71,18 @@ def load_model(adapter_dir: str) -> None:
         sys.exit(f"FATAL: adapter at '{adapter_dir}' failed to load: {exc}")
 
     logger.info(f"Model loaded successfully from adapter at {adapter_dir}")
+
+
+@asynccontextmanager
+async def _lifespan(_: FastAPI):
+    adapter_dir = os.environ.get("ADAPTER_DIR")
+    if not adapter_dir:
+        sys.exit("FATAL: set ADAPTER_DIR to the downloaded adapter checkpoint directory.")
+    load_model(adapter_dir)
+    yield
+
+
+app = FastAPI(title="Banking Support Intent Classifier", lifespan=_lifespan)
 
 
 @app.post("/predict", response_model=PredictResponse)

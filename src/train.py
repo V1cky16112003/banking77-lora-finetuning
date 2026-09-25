@@ -8,8 +8,8 @@ QLoRA as the default, so the README needs to show, not just argue, when plain
 LoRA is the better call). Run in Colab; not CI-testable (no GPU).
 
 Checkpoints to Google Drive after each epoch (design doc: "Colab session
-continuity"). Checks for an existing checkpoint before overwriting (finding
-4B) rather than silently clobbering a completed run.
+continuity"). A finished run is skipped and a partial run resumes from its last
+epoch checkpoint, rather than silently clobbering either (finding 4B).
 """
 from __future__ import annotations
 
@@ -18,13 +18,16 @@ import logging
 from dataclasses import dataclass
 from pathlib import Path
 
+import numpy as np
 import torch
 from peft import LoraConfig, get_peft_model, prepare_model_for_kbit_training
 from transformers import (
     AutoModelForCausalLM,
     AutoTokenizer,
     BitsAndBytesConfig,
-    DataCollatorForLanguageModeling,
+    DataCollatorForSeq2Seq,
+    PreTrainedModel,
+    PreTrainedTokenizer,
     Trainer,
     TrainingArguments,
 )
@@ -37,6 +40,9 @@ logger = logging.getLogger(__name__)
 
 MODEL_NAME = "Qwen/Qwen2.5-1.5B-Instruct"
 
+# Masked out of the loss (PyTorch cross-entropy's ignore_index).
+_IGNORE_INDEX = -100
+
 
 @dataclass(frozen=True)
 class LoraRunConfig:
@@ -46,7 +52,9 @@ class LoraRunConfig:
     name: str
     rank: int
     alpha: int
-    target_modules: list[str]
+    # PEFT only special-cases "all-linear" as a bare string; inside a list it
+    # is looked up as a literal module name and fails.
+    target_modules: list[str] | str
     learning_rate: float = 1.5e-4  # midpoint of the 1e-4 to 2e-4 range
     epochs: int = 2
     batch_size: int = 4
@@ -57,22 +65,61 @@ class LoraRunConfig:
 CANDIDATE_CONFIGS = [
     LoraRunConfig(name="r8_a16_qv", rank=8, alpha=16, target_modules=["q_proj", "v_proj"]),
     LoraRunConfig(name="r16_a16_qv", rank=16, alpha=16, target_modules=["q_proj", "v_proj"]),
-    LoraRunConfig(name="r16_a32_all", rank=16, alpha=32, target_modules=["all-linear"]),
+    LoraRunConfig(name="r16_a32_all", rank=16, alpha=32, target_modules="all-linear"),
     LoraRunConfig(
         name="r16_a32_all_qlora",
         rank=16,
         alpha=32,
-        target_modules=["all-linear"],
+        target_modules="all-linear",
         use_qlora=True,
     ),
 ]
 
 
-def checkpoint_exists(output_dir: Path) -> bool:
-    """4B: check before overwrite, rather than silently clobbering a
-    completed run (e.g. after an accidental re-run following a Colab
-    disconnect/reconnect)."""
-    return output_dir.exists() and any(output_dir.iterdir())
+def load_base_model(use_qlora: bool) -> PreTrainedModel:
+    """Base model on GPU 0, plain bf16 or 4-bit NF4. Shared by training and
+    eval so a QLoRA adapter is evaluated on the same quantized base it was
+    trained on."""
+    if use_qlora:
+        bnb_config = BitsAndBytesConfig(
+            load_in_4bit=True,
+            bnb_4bit_quant_type="nf4",
+            bnb_4bit_compute_dtype=torch.bfloat16,
+            bnb_4bit_use_double_quant=True,
+        )
+        return AutoModelForCausalLM.from_pretrained(
+            MODEL_NAME, quantization_config=bnb_config, device_map={"": 0}
+        )
+    return AutoModelForCausalLM.from_pretrained(
+        MODEL_NAME, torch_dtype=torch.bfloat16, device_map={"": 0}
+    )
+
+
+def is_training_complete(output_dir: Path) -> bool:
+    """The final save_pretrained writes adapter_config.json at the top level;
+    per-epoch checkpoints only write it inside checkpoint-*/ subdirectories."""
+    return (output_dir / "adapter_config.json").exists()
+
+
+def _has_epoch_checkpoint(output_dir: Path) -> bool:
+    return output_dir.exists() and any(output_dir.glob("checkpoint-*"))
+
+
+def build_training_example(tokenizer: PreTrainedTokenizer, prompt: str, label: str) -> dict:
+    """Prompt tokens are masked out of the loss so training signal comes only
+    from the label + EOS. Otherwise the ~450-token prompt (mostly the fixed
+    77-label list) dominates the loss and the model mostly learns to recite it.
+
+    The label is encoded bare and appended directly after the prompt's
+    trailing newline — exactly the token ids evaluate.py's constrained
+    decoding allows, so training and eval see the same label tokenization."""
+    prompt_ids = tokenizer.encode(prompt, add_special_tokens=False)
+    target_ids = tokenizer.encode(label, add_special_tokens=False) + [tokenizer.eos_token_id]
+    return {
+        "input_ids": prompt_ids + target_ids,
+        "attention_mask": [1] * (len(prompt_ids) + len(target_ids)),
+        "labels": [_IGNORE_INDEX] * len(prompt_ids) + target_ids,
+    }
 
 
 def train_lora(
@@ -82,12 +129,19 @@ def train_lora(
     output_dir: Path,
     overwrite: bool = False,
 ) -> Path:
-    if checkpoint_exists(output_dir) and not overwrite:
-        raise FileExistsError(
-            f"Checkpoint already exists at {output_dir} for run '{run_config.name}'. "
-            f"Pass overwrite=True to intentionally replace it, or choose a different "
-            f"output_dir. Refusing to silently overwrite a completed training run."
+    if is_training_complete(output_dir) and not overwrite:
+        logger.info(
+            json.dumps(
+                {
+                    "event": "train_skipped_already_complete",
+                    "run_name": run_config.name,
+                    "output_dir": str(output_dir),
+                }
+            )
         )
+        return output_dir
+
+    resume = _has_epoch_checkpoint(output_dir) and not overwrite
 
     logger.info(
         json.dumps(
@@ -102,6 +156,7 @@ def train_lora(
                 "batch_size": run_config.batch_size,
                 "use_qlora": run_config.use_qlora,
                 "train_examples": len(splits.train),
+                "resuming_from_checkpoint": resume,
             }
         )
     )
@@ -110,20 +165,9 @@ def train_lora(
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
 
+    model = load_base_model(run_config.use_qlora)
     if run_config.use_qlora:
-        # 4-bit NF4 base weights (bitsandbytes) + LoRA adapters on top. Not
-        # needed to fit this 1.5B model on a T4 — this arm exists purely to
-        # produce a same-task LoRA-vs-QLoRA comparison for the README.
-        bnb_config = BitsAndBytesConfig(
-            load_in_4bit=True,
-            bnb_4bit_quant_type="nf4",
-            bnb_4bit_compute_dtype=torch.bfloat16,
-            bnb_4bit_use_double_quant=True,
-        )
-        model = AutoModelForCausalLM.from_pretrained(MODEL_NAME, quantization_config=bnb_config)
         model = prepare_model_for_kbit_training(model)
-    else:
-        model = AutoModelForCausalLM.from_pretrained(MODEL_NAME, torch_dtype=torch.bfloat16)
 
     lora_config = LoraConfig(
         r=run_config.rank,
@@ -135,10 +179,8 @@ def train_lora(
     model = get_peft_model(model, lora_config)
 
     def _format_example(example: dict) -> dict:
-        true_label = splits.labels[example["label"]]
         prompt = config.format_prompt(example["text"])
-        full_text = prompt + " " + true_label
-        return tokenizer(full_text, truncation=True, max_length=512)
+        return build_training_example(tokenizer, prompt, splits.labels[example["label"]])
 
     tokenized_train = splits.train.map(_format_example, remove_columns=splits.train.column_names)
 
@@ -151,14 +193,27 @@ def train_lora(
         save_strategy="epoch",  # checkpoint after each epoch (design doc: per-epoch is sufficient)
         logging_steps=10,
         bf16=True,
+        # ~500-token sequences x batch 4 on a 15GB T4 is at the edge of OOM
+        # without this; non-reentrant avoids PEFT's frozen-input grad error.
+        gradient_checkpointing=True,
+        gradient_checkpointing_kwargs={"use_reentrant": False},
         report_to=[],
     )
 
-    data_collator = DataCollatorForLanguageModeling(tokenizer=tokenizer, mlm=False)
+    # Pads input_ids with pad_token and labels with -100, so padding never
+    # contributes to the loss.
+    data_collator = DataCollatorForSeq2Seq(tokenizer=tokenizer, label_pad_token_id=_IGNORE_INDEX)
     trainer = Trainer(
         model=model, args=training_args, train_dataset=tokenized_train, data_collator=data_collator
     )
-    train_result = trainer.train()
+    # torch>=2.6 defaults torch.load to weights_only=True, and transformers
+    # 4.46.3 can't restore the numpy RNG state in epoch checkpoints under that
+    # default, so resuming crashes. Allowlist just the numpy array primitives
+    # that rng_state.pth contains.
+    with torch.serialization.safe_globals(
+        [np.ndarray, np.dtype, np.dtypes.UInt32DType, np._core.multiarray._reconstruct]
+    ):
+        train_result = trainer.train(resume_from_checkpoint=True if resume else None)
 
     logger.info(
         json.dumps(

@@ -10,7 +10,7 @@
 transformers==4.46.3
 peft==0.13.2
 torch==2.5.1
-bitsandbytes==0.45.1  # QLoRA comparison arm (4-bit NF4) — Linux/Colab only, not needed for CPU serving. 0.44.1 predates Colab's current CUDA 12.x + triton, causing a missing-binary warning and a triton.ops ModuleNotFoundError.
+bitsandbytes==0.46.1  # QLoRA comparison arm (4-bit NF4) — Linux/Colab only, not needed for CPU serving. First release shipping libbitsandbytes_cuda128.so (Colab's CUDA 12.8); older pins fall back to a CPU-only build.
 datasets==3.1.0
 pyyaml==6.0.2
 scikit-learn==1.5.2

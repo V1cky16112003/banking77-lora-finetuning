@@ -24,26 +24,34 @@ from src.evaluate_core import parse_label
 _GENERATE_BATCH_SIZE = 16
 
 
-def _build_prefix_allowed_tokens_fn(tokenizer: PreTrainedTokenizer, labels: list[str]):
+def _build_prefix_allowed_tokens_fn(
+    tokenizer: PreTrainedTokenizer, labels: list[str], prompt_len: int
+):
     """Constrains generation to only ever produce tokens that extend a valid
-    prefix of one of the configured labels. This is authoritative (D3): when
-    it successfully applies, the model CANNOT emit anything outside the label
-    set — there is nothing for a fallback to "catch" in that case."""
+    prefix of one of the configured labels, then EOS once a label is complete.
+    This is authoritative (D3): when it successfully applies, the model CANNOT
+    emit anything outside the label set.
+
+    `prompt_len` is the padded prompt length: with left-padding every row's
+    prompt ends at the same index, so everything after it is generated text.
+    Label token ids come from encoding the bare label, which matches how
+    train.py tokenizes the target (label appended directly after the prompt's
+    trailing newline) — a leading space would tokenize differently."""
     label_token_sequences = [tokenizer.encode(label, add_special_tokens=False) for label in labels]
+    eos_id = tokenizer.eos_token_id
 
     def prefix_allowed_tokens_fn(batch_id: int, input_ids: torch.Tensor) -> list[int]:
-        # `input_ids` includes the prompt; only constrain the newly generated
-        # suffix, so slice from wherever generation started for this batch item.
-        generated_so_far = input_ids.tolist()
+        generated = input_ids[prompt_len:].tolist()
+        n = len(generated)
         allowed: set[int] = set()
         for seq in label_token_sequences:
-            # Find how much of `seq` matches the tail of what's been generated.
-            for prefix_len in range(min(len(seq), len(generated_so_far)), -1, -1):
-                if generated_so_far[-prefix_len:] == seq[:prefix_len] if prefix_len else True:
-                    if prefix_len < len(seq):
-                        allowed.add(seq[prefix_len])
-                    break
-        return list(allowed) if allowed else [tokenizer.eos_token_id]
+            if seq[:n] != generated:
+                continue
+            if n < len(seq):
+                allowed.add(seq[n])
+            else:
+                allowed.add(eos_id)
+        return list(allowed) if allowed else [eos_id]
 
     return prefix_allowed_tokens_fn
 
@@ -64,7 +72,9 @@ def generate_labels_batch(
     inputs = {k: v.to(model.device) for k, v in inputs.items()}
 
     try:
-        prefix_fn = _build_prefix_allowed_tokens_fn(tokenizer, config.labels)
+        prefix_fn = _build_prefix_allowed_tokens_fn(
+            tokenizer, config.labels, prompt_len=inputs["input_ids"].shape[1]
+        )
         logits_processor = LogitsProcessorList(
             [PrefixConstrainedLogitsProcessor(prefix_fn, num_beams=1)]
         )
@@ -75,6 +85,9 @@ def generate_labels_batch(
         **inputs,
         max_new_tokens=config.max_new_tokens,
         do_sample=config.do_sample,  # greedy, per D4
+        # Qwen2.5-Instruct's generation_config ships repetition_penalty=1.1,
+        # which would penalize label tokens simply for appearing in the prompt.
+        repetition_penalty=1.0,
         logits_processor=logits_processor,
         pad_token_id=tokenizer.pad_token_id or tokenizer.eos_token_id,
     )

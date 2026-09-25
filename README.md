@@ -73,8 +73,7 @@ tests/                  # pytest suite for evaluate_core.py and config.py
 **Serving (local):**
 ```bash
 pip install -r requirements.txt
-python -c "from src.serve import load_model; load_model('path/to/downloaded/checkpoint')"
-uvicorn src.serve:app --reload
+ADAPTER_DIR=path/to/downloaded/checkpoint uvicorn src.serve:app
 python scripts/smoke_test.py   # verify before demoing live
 python demo/app.py             # launches the Gradio UI on top of the running API
 ```
