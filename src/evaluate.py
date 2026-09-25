@@ -59,7 +59,9 @@ def generate_labels_batch(
     processor itself fails to build (D3's documented failure mode) —
     exact/fuzzy matching in evaluate_core.parse_label then resolves the
     unconstrained output, or marks it unresolved."""
+    tokenizer.padding_side = "left"
     inputs = tokenizer(prompts, return_tensors="pt", padding=True, truncation=True)
+    inputs = {k: v.to(model.device) for k, v in inputs.items()}
 
     try:
         prefix_fn = _build_prefix_allowed_tokens_fn(tokenizer, config.labels)
