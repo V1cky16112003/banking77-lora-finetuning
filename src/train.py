@@ -20,7 +20,14 @@ from pathlib import Path
 
 import torch
 from peft import LoraConfig, get_peft_model, prepare_model_for_kbit_training
-from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig, Trainer, TrainingArguments
+from transformers import (
+    AutoModelForCausalLM,
+    AutoTokenizer,
+    BitsAndBytesConfig,
+    DataCollatorForLanguageModeling,
+    Trainer,
+    TrainingArguments,
+)
 
 from src.config import TaskConfig
 from src.data import BankingSplits
@@ -100,6 +107,8 @@ def train_lora(
     )
 
     tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
+    if tokenizer.pad_token is None:
+        tokenizer.pad_token = tokenizer.eos_token
 
     if run_config.use_qlora:
         # 4-bit NF4 base weights (bitsandbytes) + LoRA adapters on top. Not
@@ -145,7 +154,10 @@ def train_lora(
         report_to=[],
     )
 
-    trainer = Trainer(model=model, args=training_args, train_dataset=tokenized_train)
+    data_collator = DataCollatorForLanguageModeling(tokenizer=tokenizer, mlm=False)
+    trainer = Trainer(
+        model=model, args=training_args, train_dataset=tokenized_train, data_collator=data_collator
+    )
     train_result = trainer.train()
 
     logger.info(
