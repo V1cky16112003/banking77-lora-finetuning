@@ -10,7 +10,7 @@ Running record of every decision, scope change, and milestone on this project, i
 
 - **Stage:** Scaffold complete, all 23 tests passing, design re-validated against 2026 market data, architecture diagram published. Real Colab training run has **not** happened yet — README results are still placeholders.
 - **Scope:** Banking77 intent classification (77 classes), Qwen2.5-1.5B-Instruct, 4 fine-tuning configs (3 bf16 LoRA + 1 QLoRA, added 2026-09-18), config-driven eval harness, FastAPI + Gradio demo (stretch/cuttable).
-- **Immediate next step:** Run `notebooks/colab_orchestration.ipynb` end to end (see TODOS.md P0) — dataset integrity check, baseline eval, all 4 training configs, fine-tuned re-eval, generate README tables.
+- **Immediate next step:** Run `notebooks/kaggle_orchestration.ipynb` end to end (see TODOS.md P0) — dataset integrity check, baseline eval, all 4 training configs, fine-tuned re-eval, generate README tables.
 - **What's accomplished:** see [Accomplished](#accomplished) below.
 - **What's next / not done:** see [Open Items](#open-items) below.
 
@@ -104,7 +104,7 @@ Created the first architecture diagram for the project (none existed previously 
 - [x] Modular scaffold: `src/config.py`, `src/data.py`, `src/evaluate_core.py` (CI-tested, zero ML deps), `src/evaluate.py` (ML orchestration), `src/train.py`, `src/serve.py` (FastAPI), `demo/app.py` (Gradio).
 - [x] Config-driven task definition (`configs/task.yaml`) — single source of truth for label list, prompt template, decoding config.
 - [x] `scripts/generate_report.py` (results table + confusion heatmap + bootstrap CI) and `scripts/smoke_test.py` (post-deploy verification).
-- [x] `notebooks/colab_orchestration.ipynb` scaffolded.
+- [x] `notebooks/kaggle_orchestration.ipynb` scaffolded.
 - [x] Test suite: 23/23 passing (`tests/test_config.py`, `tests/test_evaluate_core.py`).
 - [x] Git repo initialized, design doc and scaffold committed.
 - [x] Demo UI design reviewed (7-pass, 9/10 score), OPERATE-mode interaction model documented.

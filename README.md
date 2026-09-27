@@ -62,13 +62,13 @@ src/serve.py            # FastAPI /predict endpoint
 demo/app.py             # Gradio demo UI
 scripts/smoke_test.py   # post-deploy verification against known examples
 scripts/generate_report.py  # results table + confusion heatmap + bootstrap CI, from eval JSONL
-notebooks/colab_orchestration.ipynb  # Colab notebook tying it all together
+notebooks/kaggle_orchestration.ipynb  # Kaggle notebook tying it all together
 tests/                  # pytest suite for evaluate_core.py and config.py
 ```
 
 ## Running It
 
-**Training (Colab):** open `notebooks/colab_orchestration.ipynb` in Colab, mount Drive, run cells top to bottom.
+**Training (Kaggle):** import `notebooks/kaggle_orchestration.ipynb` into Kaggle (GPU T4 x2, Internet on), then Save Version -> Save & Run All.
 
 **Serving (local):**
 ```bash
