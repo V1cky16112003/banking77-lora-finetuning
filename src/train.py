@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import json
 import logging
+import time
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -29,6 +30,7 @@ from transformers import (
     PreTrainedModel,
     PreTrainedTokenizer,
     Trainer,
+    TrainerCallback,
     TrainingArguments,
 )
 
@@ -39,6 +41,36 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(mess
 logger = logging.getLogger(__name__)
 
 MODEL_NAME = "Qwen/Qwen2.5-1.5B-Instruct"
+
+
+def _use_bf16() -> bool:
+    """bf16 needs Ampere+ (compute capability 8.x). The T4 (7.5) only emulates
+    it, which makes training crawl, so fall back to fp16 there."""
+    return torch.cuda.is_available() and torch.cuda.get_device_capability(0)[0] >= 8
+
+
+def compute_dtype() -> torch.dtype:
+    return torch.bfloat16 if _use_bf16() else torch.float16
+
+
+class _PrintProgressCallback(TrainerCallback):
+    """tqdm's in-place progress bar never reaches a Kaggle commit run's log, so
+    print one plain line per logging step instead."""
+
+    def __init__(self, run_name: str):
+        self.run_name = run_name
+        self.start = time.monotonic()
+
+    def on_log(self, args, state, control, logs=None, **kwargs):
+        if not logs or "loss" not in logs:
+            return
+        elapsed = time.monotonic() - self.start
+        eta = elapsed / max(state.global_step, 1) * (state.max_steps - state.global_step)
+        print(
+            f"[{self.run_name}] step {state.global_step}/{state.max_steps} "
+            f"loss={logs['loss']:.4f} elapsed={elapsed / 60:.1f}m eta={eta / 60:.1f}m",
+            flush=True,
+        )
 
 # Masked out of the loss (PyTorch cross-entropy's ignore_index).
 _IGNORE_INDEX = -100
@@ -77,21 +109,21 @@ CANDIDATE_CONFIGS = [
 
 
 def load_base_model(use_qlora: bool) -> PreTrainedModel:
-    """Base model on GPU 0, plain bf16 or 4-bit NF4. Shared by training and
+    """Base model on GPU 0, plain 16-bit (see compute_dtype) or 4-bit NF4. Shared by training and
     eval so a QLoRA adapter is evaluated on the same quantized base it was
     trained on."""
     if use_qlora:
         bnb_config = BitsAndBytesConfig(
             load_in_4bit=True,
             bnb_4bit_quant_type="nf4",
-            bnb_4bit_compute_dtype=torch.bfloat16,
+            bnb_4bit_compute_dtype=compute_dtype(),
             bnb_4bit_use_double_quant=True,
         )
         return AutoModelForCausalLM.from_pretrained(
             MODEL_NAME, quantization_config=bnb_config, device_map={"": 0}
         )
     return AutoModelForCausalLM.from_pretrained(
-        MODEL_NAME, torch_dtype=torch.bfloat16, device_map={"": 0}
+        MODEL_NAME, torch_dtype=compute_dtype(), device_map={"": 0}
     )
 
 
@@ -192,7 +224,9 @@ def train_lora(
         learning_rate=run_config.learning_rate,
         save_strategy="epoch",  # checkpoint after each epoch (design doc: per-epoch is sufficient)
         logging_steps=10,
-        bf16=True,
+        bf16=_use_bf16(),
+        fp16=not _use_bf16(),
+        disable_tqdm=True,
         # ~500-token sequences x batch 4 on a 15GB T4 is at the edge of OOM
         # without this; non-reentrant avoids PEFT's frozen-input grad error.
         gradient_checkpointing=True,
@@ -204,7 +238,11 @@ def train_lora(
     # contributes to the loss.
     data_collator = DataCollatorForSeq2Seq(tokenizer=tokenizer, label_pad_token_id=_IGNORE_INDEX)
     trainer = Trainer(
-        model=model, args=training_args, train_dataset=tokenized_train, data_collator=data_collator
+        model=model,
+        args=training_args,
+        train_dataset=tokenized_train,
+        data_collator=data_collator,
+        callbacks=[_PrintProgressCallback(run_config.name)],
     )
     # torch>=2.6 defaults torch.load to weights_only=True, and transformers
     # 4.46.3 can't restore the numpy RNG state in epoch checkpoints under that
