@@ -9,7 +9,7 @@ import pytest
 torch = pytest.importorskip("torch")
 transformers = pytest.importorskip("transformers")
 
-from src.readout import score_labels, tokenize_labels  # noqa: E402
+from src.readout import repeat_cache, score_labels, tokenize_labels  # noqa: E402
 
 LABELS = ["card_arrival", "card_delivery_estimate", "card_lost", "age_limit"]
 PROMPT = "Customer message: where is my new card?\nIntent:\n"
@@ -62,3 +62,20 @@ def test_label_tokens_end_in_eos_and_mask_padding(tiny_model_and_tokenizer):
     for row in range(len(LABELS)):
         last = int(tokens.mask[row].sum()) - 1
         assert tokens.ids[row, last].item() == tokenizer.eos_token_id
+
+
+@pytest.mark.skipif(
+    not hasattr(transformers.DynamicCache, "from_legacy_cache"),
+    reason="transformers 5.x removed the legacy tuple cache format",
+)
+def test_repeat_cache_handles_legacy_tuple_format():
+    # transformers 4.46 (the pinned version on Kaggle) returns this format.
+    key = torch.randn(1, 2, 5, 8)
+    value = torch.randn(1, 2, 5, 8)
+    repeated = repeat_cache(((key, value), (key, value)), 3)
+    assert isinstance(repeated, transformers.DynamicCache)
+    assert len(repeated) == 2
+    for layer_key, layer_value in repeated.to_legacy_cache():
+        assert layer_key.shape == (3, 2, 5, 8)
+        assert torch.equal(layer_key[2], key[0])
+        assert torch.equal(layer_value[1], value[0])

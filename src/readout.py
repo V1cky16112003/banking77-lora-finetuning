@@ -26,7 +26,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import torch
-from transformers import PreTrainedModel, PreTrainedTokenizer
+from transformers import DynamicCache, PreTrainedModel, PreTrainedTokenizer
 
 from src.config import TaskConfig
 from src.evaluate_core import softmax_scores
@@ -53,6 +53,26 @@ def tokenize_labels(tokenizer: PreTrainedTokenizer, labels: list[str]) -> LabelT
         ids[row, : len(seq)] = torch.tensor(seq)
         mask[row, : len(seq)] = True
     return LabelTokens(ids=ids, mask=mask)
+
+
+def repeat_cache(cache, n: int):
+    """Copy a batch-1 KV cache across `n` rows, whichever format the model returns.
+
+    The pinned transformers (4.46, requirements.txt) returns the legacy format,
+    a tuple of (key, value) tensors per layer, while newer releases return a
+    Cache object. A legacy tuple is expanded and wrapped in a DynamicCache,
+    because 4.46 only accepts a tuple when use_cache=True. expand() makes a
+    zero-copy view; the cache concatenates new keys onto it rather than writing
+    in place, so the prompt cache is not changed.
+    """
+    if isinstance(cache, tuple):
+        return DynamicCache.from_legacy_cache(
+            tuple(tuple(t.expand(n, *t.shape[1:]) for t in layer) for layer in cache)
+        )
+    # A Cache object is mutated in place by the next forward pass, so copy it first.
+    cache = copy.deepcopy(cache)
+    cache.batch_repeat_interleave(n)
+    return cache
 
 
 @torch.no_grad()
@@ -84,9 +104,7 @@ def score_labels(
     token_logprobs = [first_logprobs[ids[:, 0]]]  # (n_labels,)
 
     if max_len > 1:
-        # deepcopy: the cache is mutated in place by the next forward pass.
-        cache = copy.deepcopy(prefill.past_key_values)
-        cache.batch_repeat_interleave(n_labels)
+        cache = repeat_cache(prefill.past_key_values, n_labels)
         attention_mask = torch.ones(
             (n_labels, prompt_ids.shape[1] + max_len - 1), dtype=torch.long, device=device
         )
