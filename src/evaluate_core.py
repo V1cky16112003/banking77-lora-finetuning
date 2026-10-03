@@ -9,6 +9,7 @@ generation calls.
 from __future__ import annotations
 
 import difflib
+import math
 import random
 from collections import Counter
 
@@ -118,3 +119,87 @@ def format_label_for_display(label: str) -> str:
     the raw underscored label is still what's used internally and in eval;
     this only changes what's rendered on screen."""
     return label.replace("_", " ").title()
+
+
+# --- Calibration metrics (MiniJev Phase 0, docs/designs/minijev-phase0-plan.md) ---
+# Pure-Python on purpose: these take plain lists of probabilities produced by
+# src/readout.py, so CI can test them without torch.
+
+
+def softmax_scores(scores: list[float]) -> list[float]:
+    """Turn per-label log-likelihoods into a distribution over the label set.
+    Subtracting the max first keeps exp() from overflowing on large-magnitude
+    log-probs (sequence log-likelihoods are often -50 or lower)."""
+    peak = max(scores)
+    exps = [math.exp(s - peak) for s in scores]
+    total = sum(exps)
+    return [e / total for e in exps]
+
+
+def brier_score(probs: list[list[float]], true_indices: list[int]) -> float:
+    """Mean multiclass Brier score, ||p - e_y||^2, averaged over examples.
+    Strictly proper: its expectation is uniquely minimised by reporting the
+    true distribution, which is why RLCD-style training uses it. Range [0, 2]."""
+    total = 0.0
+    for p, y in zip(probs, true_indices):
+        total += sum((pi - (1.0 if i == y else 0.0)) ** 2 for i, pi in enumerate(p))
+    return total / len(probs)
+
+
+def expected_calibration_error(
+    confidences: list[float], correct: list[bool], n_bins: int = 15
+) -> float:
+    """Top-label ECE: bin examples by confidence, then average |accuracy -
+    mean confidence| per bin, weighted by bin size. 0 means "when it says 80%,
+    it is right 80% of the time". Bins are (lo, hi], with confidence 0 put in
+    the first bin."""
+    n = len(confidences)
+    bins: list[list[int]] = [[] for _ in range(n_bins)]
+    for i, c in enumerate(confidences):
+        idx = min(n_bins - 1, max(0, int(c * n_bins - 1e-12)))
+        bins[idx].append(i)
+
+    ece = 0.0
+    for members in bins:
+        if not members:
+            continue
+        acc = sum(correct[i] for i in members) / len(members)
+        conf = sum(confidences[i] for i in members) / len(members)
+        ece += (len(members) / n) * abs(acc - conf)
+    return ece
+
+
+def risk_coverage_curve(
+    confidences: list[float], correct: list[bool]
+) -> list[tuple[float, float]]:
+    """(coverage, risk) points from accepting the k most-confident predictions,
+    for k = 1..n. Risk is the error rate among the accepted predictions. This is
+    the "how much can I automate at a given error budget?" view."""
+    order = sorted(range(len(confidences)), key=lambda i: confidences[i], reverse=True)
+    n = len(order)
+    points = []
+    errors = 0
+    for k, i in enumerate(order, start=1):
+        errors += not correct[i]
+        points.append((k / n, errors / k))
+    return points
+
+
+def aurc(confidences: list[float], correct: list[bool]) -> float:
+    """Area under the risk-coverage curve (lower is better). Mean of the risk
+    over all k, i.e. the uniform-coverage-step integral."""
+    curve = risk_coverage_curve(confidences, correct)
+    return sum(risk for _, risk in curve) / len(curve)
+
+
+def coverage_at_risk(
+    confidences: list[float], correct: list[bool], max_risk: float
+) -> float:
+    """Largest fraction of examples that can be auto-decided (most-confident
+    first) while keeping the error rate among them <= max_risk. Cov@5% is the
+    headline "delegable decisions" number from the OpenJev paper."""
+    best = 0.0
+    for coverage, risk in risk_coverage_curve(confidences, correct):
+        if risk <= max_risk:
+            best = coverage
+    return best
