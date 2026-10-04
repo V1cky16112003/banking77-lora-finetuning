@@ -68,11 +68,8 @@ only **Save & Run All**.
   is extra memory traffic worth measuring, not only an OOM. The profiler lost the B=1/B=4 results
   because it only saved at the end. Fixed: per-batch-size OOM is recorded as a result, batch
   sizes are now 1/2/4/8, and the JSON is saved after every step.
-- **Profiler review fixes (not in run 2's code if it was already cloned):** the top-ops table
-  ranked by inclusive CUDA time, which lists nested ops (`aten::linear` > `aten::matmul` >
-  `aten::mm`) as separate entries counting the same kernel time several times. It now ranks by
-  self GPU time (`self_gpu_ms`, `self_gpu_share`) and reads `self_device_time_total` on newer torch.
-  Read run 2's `top_kernels_b4` by `self_cuda_share`, not `cuda_ms`.
+- **Profiler review fix (`0aec93c`, in run 2):** the top-ops table now ranks by self GPU
+  time (`self_gpu_share`) instead of inclusive CUDA time, which counted nested ops several times.
 - **2026-10-04, run 2: complete** (T4, torch 2.11, transformers 4.46.3, SDPA, fp16, n=48).
 
 ## Results (run 2)
