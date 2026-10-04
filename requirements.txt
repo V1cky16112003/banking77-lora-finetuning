@@ -7,8 +7,12 @@
 # preinstalled torch is already compatible). Locally, this torch pin targets CPU
 # serving; adjust to your local CUDA build if you have a local GPU.
 
-transformers==4.46.3
-peft==0.13.2
+# jev branch: transformers 5.x for Qwen3 (needs >= 4.51) and the Cache API that
+# src/minijev/packing.py relies on; peft bumped to match. main keeps 4.46.3 /
+# 0.13.2 for the Qwen2.5 classifier. Checked together with datasets 3.1.0 and
+# huggingface-hub 1.26 (MiniJev Phase 1, docs/designs/minijev-plan.md).
+transformers==5.14.1
+peft==0.21.2
 torch==2.5.1
 bitsandbytes==0.46.1  # QLoRA comparison arm (4-bit NF4) — Linux/Colab only, not needed for CPU serving. First release shipping libbitsandbytes_cuda128.so (Colab's CUDA 12.8); older pins fall back to a CPU-only build.
 datasets==3.1.0
