@@ -42,12 +42,22 @@ only **Save & Run All**.
 
 ## Decision rule after the run
 - **Compute-bound confirmed:** exact multi-token scoring can't pass the 5× gate
-  on a T4. Re-scope the gates: Phase 0 passes on exactness + calibration (done),
-  and the speed gate moves to Phase 2, where every option is a single slot
-  token. That makes the read-out ~11 positions per message. This is the core
-  reason Jev answers with fixed option slots instead of strings.
+  on a T4. Phase 0 passes on exactness + calibration (done), and the speed gate
+  is **re-derived, not just moved** (see correction below).
   Optional Phase 0d: trie + tree attention (693 → 255 positions, ~2.7×) as an
-  exact intermediate step.
+  exact intermediate step. Borderline by this plan's own numbers: 255 + 11
+  positions × 3.1 GFLOP at 25 TFLOP/s is ~33 ms, exactly the 5× target.
+
+> **Correction (2026-10-04, after comparing with Kev).** An earlier version of
+> this rule said a slot/pointer read-out is "~11 positions per message". It is
+> not: the 77 options must still be *in the input*, after the per-message state,
+> so they cannot be prefix-cached across messages. A Jev/Kev-style read-out
+> processes ~11 (message) + ~400 (77 option spans) ≈ 410 positions per message,
+> against generation's ~470 prefill + ~10 sequential decode steps. Its speed-up
+> over generation comes from deleting the decode steps, not from fewer
+> positions, so expect ~1.5–3×, not 5×. The Phase 2 gate in `minijev-plan.md`
+> is rewritten accordingly: per-question cost and questions-per-state scaling,
+> not "5× faster than generating one Banking77 label".
 - **Not compute-bound** (low efficiency, one kernel dominating): fix that
   specific kernel and re-run the Phase 0 gate.
 
@@ -58,3 +68,8 @@ only **Save & Run All**.
   is extra memory traffic worth measuring, not only an OOM. The profiler lost the B=1/B=4 results
   because it only saved at the end. Fixed: per-batch-size OOM is recorded as a result, batch
   sizes are now 1/2/4/8, and the JSON is saved after every step.
+- **Profiler review fixes (not in run 2's code if it was already cloned):** the top-ops table
+  ranked by inclusive CUDA time, which lists nested ops (`aten::linear` > `aten::matmul` >
+  `aten::mm`) as separate entries counting the same kernel time several times. It now ranks by
+  self GPU time (`self_gpu_ms`, `self_gpu_share`) and reads `self_device_time_total` on newer torch.
+  Read run 2's `top_kernels_b4` by `self_cuda_share`, not `cuda_ms`.

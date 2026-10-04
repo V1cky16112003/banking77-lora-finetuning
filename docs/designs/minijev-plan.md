@@ -2,37 +2,62 @@
 
 Companion to `minijev-architecture.md`. Hardware: Kaggle T4 (fp16, ~30 GPU-h/week).
 Each phase ends with a measurable gate; don't start the next phase until it passes.
+Revised 2026-10-04 after comparison with Kev (architecture §8): pointer-head
+read-out instead of slot tokens, TypeSafe's real API contract, re-derived
+speed and calibration gates.
 
-## Phase 0 — Logit read-out on Banking77 (≈1 day, no new training)
+## Phase 0 — Logit read-out on Banking77 (done, gate re-scoped)
 Goal: prove "decide without generating" on the existing pipeline.
-- `src/readout.py`: score each of the 77 labels by the logit of its first token
-  after `Intent:` (labels → unique single tokens or first-token disambiguation).
+- `src/readout.py`: score each of the 77 labels by its **full-sequence**
+  log-likelihood (label tokens + EOS), renormalised over the label set.
+  First-token scoring, the original idea, can't tell apart labels that share
+  a first token (details in `minijev-phase0-plan.md`).
 - Reuse the existing LoRA checkpoint; compare against `generate()` + `parse_label`.
 - Add `ece`, `brier`, `aurc`, `coverage_at` to `src/evaluate_core.py` (+ tests).
-- **Gate:** read-out accuracy within 1 pt of generation; ≥5× faster; ECE reported.
+- **Gate:** read-out accuracy within 1 pt of generation (PASS: 0.918 vs 0.914);
+  ECE reported (PASS: 0.021). Speed (≥5× faster) FAILED at 0.50×. Phase 0c
+  profiles why. The speed gate is re-derived in Phase 2, because a read-out
+  still has to put all 77 options in the input (`minijev-phase0c-plan.md`).
 
 Learn: why reading logits gives a probability distribution for free.
 
 ## Phase 1 — Shared-prefix parallel questions (≈2 days)
 Goal: one state, many questions, one prefill.
+- Bump `transformers` on the `jev` branch to a version with Qwen3 (≥ 4.51);
+  keep `main`'s pin. Re-run the Phase 0 tests on the new version.
 - `src/minijev/packing.py`: build packed sequence + block attention mask +
-  restarted position ids (state, then k question branches).
-- Unit test: packed logits == logits from k separate "state + Qi" runs (atol 1e-3).
+  restarted position ids (state, then k question branches). Additive mask with
+  `finfo.min`, padded query rows keep their diagonal (as Kev's `branch_mask_batch`).
+- Row form: each question as one causal row continuing a cached state;
+  rows per pass capped by a token budget.
+- Unit tests: packed logits == logits from k separate "state + Qi" runs
+  (atol 1e-3); row form == packed form.
 - Benchmark on T4: k = 1, 4, 16, 64 questions; compare vs k separate calls.
-- **Gate:** equivalence test passes; latency grows sub-linearly in k.
+- **Gate:** equivalence tests pass; latency grows sub-linearly in k.
 
 Learn: KV caching, attention masks, why context budget = state + longest question.
 
-## Phase 2 — Slot tokens & the `decide()` API (≈3 days)
-- Add 255 `[S_i]` tokens + `[ANS]`; resize embeddings; init slot embeddings
-  from mean embedding + noise.
-- `src/minijev/schema.py`: `Choice`, `Noul`, `Score`, `Decision` dataclasses;
-  serializer that writes options as `[S_i] text` with shuffled slot order.
-- `src/minijev/model.py`: `decide(state, questions)` → masked softmax over slots
-  read at each `[ANS]`.
-- Tests: output always within declared options; probs sum to 1; slot-order
-  shuffle invariance (after training).
-- **Gate:** API works end-to-end on the untrained model (random but well-typed).
+## Phase 2 — Pointer head & the `/v1/systemone` API (≈3 days)
+- Delimiters: reuse existing Qwen special tokens for state / question /
+  option open / option close / decide; no new embedding rows.
+- `src/minijev/schema.py`: pydantic `Choice`, `Noul`, `Score`,
+  `SystemOneRequest` matching TypeSafe's `/v1/systemone` (questions keyed by
+  id; choice criteria `{name: description}`; score criteria = ordered list);
+  `render()` for object/array states; TypeSafe's confidence formulas; 4-decimal
+  rounding (architecture §2).
+- `src/minijev/model.py`: `PointerHead` (`W_q`, `W_k`, `d_p = 256`, fp32),
+  reading `<decide>` against each option's closing-token hidden state; masked
+  softmax per question; temperature applied only in eval mode.
+- Escape `<|…|>` in all caller text before tokenising.
+- Tests: answer always within declared options; probs sum to 1; a state or
+  option containing a delimiter string cannot add an option; one question's
+  text is invisible to its siblings; option-order flip rate (after training).
+- **Gate:** API works end-to-end on the untrained model (random but well-typed);
+  isolation and boundary-forgery tests pass. Speed: report per-question cost
+  for a 77-option Banking77 question vs generation, and the marginal cost of
+  questions 2..8 on one state. Gate on the second: the extra question costs
+  ≤ 25% of the first. The first-question cost is reported, not gated
+  (expected 1.5–3× faster than generation, not 5×).
 
 ## Phase 3 — Synthetic data generator (≈4 days)
 - `src/minijev/data/`: converters for CLINC150, MNLI, BoolQ, SST-2, AG News,
@@ -41,46 +66,60 @@ Learn: KV caching, attention masks, why context budget = state + longest questio
   JSON vs prose state, multi-question records (1–8 per state).
 - Teacher-labeled set (optional, budgeted): ~5–10k synthetic states labeled
   with option probabilities from a frontier LLM; cache results to disk.
-- **Hold out Banking77** (zero-shot eval) and a slice of each source (dev/test).
+- **Hold out Banking77** (zero-shot eval), a slice of each source (dev/test),
+  and at least two **whole sources** (out-of-domain split).
+- Training context to start: state ≤ 384, question branch ≤ 1024, packed ≤ 2048.
 - **Gate:** ≥200k questions; label-distribution report; no Banking77 leakage
   (test asserts it).
 
 ## Phase 4 — RLCD-lite training (≈1 week of Kaggle runs)
-- `src/minijev/train.py`: LoRA (r=16) on Qwen3-1.7B, fp16; loss = Brier
-  (config flag for log score); slot-head tied to slot embeddings.
+- `src/minijev/train.py`: LoRA (r=16) on Qwen3-1.7B Base, fp16 backbone,
+  fp32 head and loss; loss = log score (soft CE) with config flags for a Brier
+  term and a permutation-consistency KL term.
 - Resume-from-checkpoint across Kaggle sessions (reuse current notebook
   mechanism).
-- Run matrix: {Brier, log} × {with, without teacher soft labels}.
+- Run matrix: {log, log + Brier} × {with, without permutation KL}; teacher
+  soft labels only if the teacher set exists.
+- Fit temperature T on dev; store it with the checkpoint.
 - **Gate:** on held-out sources, accuracy ≥ SFT-cross-entropy baseline and
-  ECE ≤ 0.05 with fitted T in [0.8, 1.3].
+  ECE ≤ 0.05 **after** temperature scaling. Report T and raw ECE; not gated
+  (Kev's adapters land at T ≈ 2.2–2.4).
 
-Learn: proper scoring rules — why Brier's optimum is the true distribution.
+Learn: proper scoring rules — why the optimum of log score and Brier is the
+true distribution, and why one-hot training still ends up overconfident.
 
 ## Phase 5 — Evaluation report (≈2 days)
-- Zero-shot Banking77 (never trained on) vs the repo's fine-tuned classifier.
-- Reliability diagrams, risk–coverage curves, Cov@5%.
+- Zero-shot Banking77 (never trained on) vs the repo's fine-tuned classifier
+  and vs Kev-0.8B / Kev-4B (open weights, same API).
+- Reliability diagrams (raw and after T), risk–coverage curves, Cov@5%,
+  option-shuffle flip rate.
 - Latency table on T4: MiniJev vs generate-and-parse, k questions per state.
 - Write `reports/minijev-results.md`.
 - **Gate:** report shows where MiniJev wins and loses, with bootstrap CIs.
 
 ## Phase 6 — Serving (≈2 days)
-- Extend `src/serve.py` with `POST /v1/systemone` matching the `decide()` schema.
+- Extend `src/serve.py` with `POST /v1/systemone`, request/response exactly as
+  `schema.py` (TypeSafe's contract), so a Jev or Kev client works unchanged.
+- State-prefix cache: reuse a state's KV across requests with the same state.
 - Optional: vLLM prefix caching path for throughput.
 - **Gate:** p95 latency < 150 ms for 1 state + 8 questions on T4.
 
 ## Phase 7 — Stretch
 - RLCD stage 2 with rationales (OpenJev Algorithm 1) on a reasoning task.
 - >255 options via 2-stage Noul scoring → Choice.
+- Option isolation (permutation-invariant option spans, packed form).
 - Qwen3-4B backbone.
 
 ## Risks
 | Risk | Mitigation |
 |---|---|
-| Slot binding fails at 1.7B | Fall back to scoring option text tokens directly (Phase 0 style) |
-| T4 fp16 overflow | Qwen3 (not Gemma); loss in fp32; grad clipping |
+| Pointer head learns option-position bias | Shuffle options, permutation-KL term, measure flip rate; option isolation in Phase 7 |
+| Pinned transformers 4.46 can't load Qwen3 | Bump on `jev` in Phase 1; Phase 0 tests already run on 4.46 and 5.x |
+| Speed gain over generation smaller than hoped | Gate on marginal cost per extra question, where shared prefill pays off |
+| T4 fp16 overflow | Qwen3 (not Gemma); head and loss in fp32; grad clipping |
 | Kaggle quota | Small run matrix; resume checkpoints; short eval sets during dev |
 | Teacher cost | Teacher set is optional; real datasets alone suffice for v1 |
-| Overclaiming vs Jev | Report results as "MiniJev", never as Jev parity |
+| Overclaiming vs Jev | Report results as "MiniJev", never as Jev parity; compare against Kev, which has open weights |
 
 ## Out of scope
 Pre-training, multimodal input, multi-label outputs, matching Jev's benchmark claims.
