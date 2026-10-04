@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import copy
 import json
+import time
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -132,9 +133,13 @@ class LabelScorer:
         return suffix_ids
 
     @torch.no_grad()
-    def score(self, messages: list[str]) -> list[list[float]]:
-        """Sequence log-likelihood of every label, per message: (len(messages), n_labels)."""
+    def score(self, messages: list[str], timings: dict[str, float] | None = None) -> list[list[float]]:
+        """Sequence log-likelihood of every label, per message: (len(messages), n_labels).
+
+        Pass a dict as `timings` to accumulate per-stage seconds into it
+        (CUDA-synchronised, so slower; for profiling only)."""
         device = self.model.device
+        mark = _StageTimer(timings, device)
         suffixes = [self._suffix_ids(m) for m in messages]
         n_msgs, n_labels = len(suffixes), self.labels.ids.shape[0]
         prefix_len = len(self.prefix_ids)
@@ -156,6 +161,7 @@ class LabelScorer:
             position_ids=(prefix_len + torch.arange(suffix_len, device=device)).expand(n_msgs, -1),
             use_cache=True,
         )
+        mark("suffix_pass")
         # Each message's last real position scores the first token of every label.
         last_logits = out_a.logits[torch.arange(n_msgs, device=device), lengths - 1].float()
         label_ids = self.labels.ids.to(device)
@@ -164,6 +170,7 @@ class LabelScorer:
         # Stage B: all labels for all messages. Row r = message r // n_labels, label r % n_labels.
         cache = out_a.past_key_values
         cache.batch_repeat_interleave(n_labels)
+        mark("kv_repeat")
         label_len = label_ids.shape[1]
         mask_b = torch.cat(
             [
@@ -183,11 +190,35 @@ class LabelScorer:
             position_ids=positions,
             use_cache=False,
         )
+        mark("label_pass")
         rest = _token_logprobs(out_b.logits, label_ids[:, 1:].repeat(n_msgs, 1))
+        mark("logsumexp")
 
         token_logprobs = torch.cat([first.reshape(-1, 1), rest], dim=1)
         mask = self.labels.mask.to(device).repeat(n_msgs, 1)
         return (token_logprobs * mask).sum(dim=1).view(n_msgs, n_labels).tolist()
+
+
+class _StageTimer:
+    """Adds the seconds since the previous call to timings[stage]. A no-op when
+    timings is None, so the normal path never synchronises the GPU."""
+
+    def __init__(self, timings: dict[str, float] | None, device: torch.device):
+        self.timings = timings
+        self.cuda = device.type == "cuda"
+        self.last = self._now() if timings is not None else 0.0
+
+    def _now(self) -> float:
+        if self.cuda:
+            torch.cuda.synchronize()
+        return time.perf_counter()
+
+    def __call__(self, stage: str) -> None:
+        if self.timings is None:
+            return
+        now = self._now()
+        self.timings[stage] = self.timings.get(stage, 0.0) + now - self.last
+        self.last = now
 
 
 def _token_logprobs(logits: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:

@@ -121,3 +121,12 @@ def test_repeat_cache_handles_legacy_tuple_format():
         assert layer_key.shape == (3, 2, 5, 8)
         assert torch.equal(layer_key[2], key[0])
         assert torch.equal(layer_value[1], value[0])
+
+
+def test_timings_cover_every_stage_and_do_not_change_scores(tiny_model, tokenizer, config):
+    scorer = LabelScorer(tiny_model, tokenizer, config)
+    timings = {}
+    timed = scorer.score(MESSAGES, timings=timings)
+    assert set(timings) == {"suffix_pass", "kv_repeat", "label_pass", "logsumexp"}
+    assert all(t >= 0 for t in timings.values())
+    assert timed == scorer.score(MESSAGES)
