@@ -37,7 +37,7 @@ import torch
 from transformers import DynamicCache, PreTrainedModel, PreTrainedTokenizer
 
 from src.config import TaskConfig
-from src.evaluate_core import softmax_scores
+from src.evaluate_core import load_resumable_jsonl, softmax_scores
 
 _MESSAGE_SENTINEL = "\x00MESSAGE\x00"
 # Rows per fp32 logsumexp chunk: 32 rows x ~12 positions x 151,936 vocab ~ 230 MB.
@@ -248,11 +248,7 @@ def readout_dataset(
     Kaggle disconnect resumes where it stopped (same contract as
     evaluate.evaluate_dataset). Records carry the full distribution so
     calibration metrics can be recomputed offline."""
-    records: list[dict] = []
-    if predictions_path.exists():
-        with predictions_path.open("r", encoding="utf-8") as f:
-            records = [json.loads(line) for line in f]
-
+    records = load_resumable_jsonl(predictions_path)
     scorer = LabelScorer(model, tokenizer, config)
     remaining = examples[len(records) :]
     with predictions_path.open("a", encoding="utf-8") as f:

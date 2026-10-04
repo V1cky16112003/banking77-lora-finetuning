@@ -1,3 +1,4 @@
+import json
 import math
 
 import pytest
@@ -12,6 +13,7 @@ from src.evaluate_core import (
     coverage_at_risk,
     expected_calibration_error,
     format_label_for_display,
+    load_resumable_jsonl,
     parse_label,
     risk_coverage_curve,
     softmax_scores,
@@ -201,3 +203,24 @@ def test_coverage_at_risk():
     correct = [True, True, False, True]
     assert coverage_at_risk(conf, correct, max_risk=0.0) == 0.5
     assert coverage_at_risk(conf, correct, max_risk=0.25) == 1.0
+
+
+def test_load_resumable_jsonl_missing_file_is_empty(tmp_path):
+    assert load_resumable_jsonl(tmp_path / "none.jsonl") == []
+
+
+def test_load_resumable_jsonl_drops_torn_last_line_and_truncates(tmp_path):
+    path = tmp_path / "preds.jsonl"
+    path.write_text('{"a": 1}\n{"a": 2}\n{"a": 3, "pro', encoding="utf-8")
+    assert load_resumable_jsonl(path) == [{"a": 1}, {"a": 2}]
+    # File now ends on a whole record, so appending the next one stays valid JSONL.
+    with path.open("a", encoding="utf-8") as f:
+        f.write('{"a": 3}\n')
+    assert load_resumable_jsonl(path) == [{"a": 1}, {"a": 2}, {"a": 3}]
+
+
+def test_load_resumable_jsonl_raises_on_corruption_before_last_line(tmp_path):
+    path = tmp_path / "preds.jsonl"
+    path.write_text('{"a": 1}\nnot json\n{"a": 3}\n', encoding="utf-8")
+    with pytest.raises(json.JSONDecodeError):
+        load_resumable_jsonl(path)

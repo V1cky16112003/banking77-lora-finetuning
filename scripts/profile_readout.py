@@ -86,7 +86,17 @@ def _profile_batches(scorer: LabelScorer, messages: list[str], batch_size: int) 
     }
 
 
+def _self_gpu_us(event) -> float:
+    """Self GPU time of a profiler event. torch 2.4+ names it self_device_time_total
+    and deprecates the cuda_ spelling; Kaggle's torch version is not pinned."""
+    value = getattr(event, "self_device_time_total", None)
+    return value if value is not None else event.self_cuda_time_total
+
+
 def top_kernels(scorer: LabelScorer, messages: list[str]) -> list[dict]:
+    """Ops ranked by *self* GPU time. Inclusive time would list nested ops
+    (aten::linear > aten::matmul > aten::mm) as separate top entries, counting
+    the same kernel time several times over."""
     if not torch.cuda.is_available():
         return []
     from torch.profiler import ProfilerActivity, profile
@@ -94,13 +104,13 @@ def top_kernels(scorer: LabelScorer, messages: list[str]) -> list[dict]:
     with profile(activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA]) as prof:
         scorer.score(messages)
         torch.cuda.synchronize()
-    events = sorted(prof.key_averages(), key=lambda e: e.cuda_time_total, reverse=True)
-    total = sum(e.self_cuda_time_total for e in events) or 1
+    events = sorted(prof.key_averages(), key=_self_gpu_us, reverse=True)
+    total = sum(_self_gpu_us(e) for e in events) or 1
     return [
         {
             "name": e.key[:90],
-            "cuda_ms": e.cuda_time_total / 1000,
-            "self_cuda_share": e.self_cuda_time_total / total,
+            "self_gpu_ms": _self_gpu_us(e) / 1000,
+            "self_gpu_share": _self_gpu_us(e) / total,
             "calls": e.count,
         }
         for e in events[:TOP_KERNELS]

@@ -9,9 +9,11 @@ generation calls.
 from __future__ import annotations
 
 import difflib
+import json
 import math
 import random
 from collections import Counter
+from pathlib import Path
 
 from sklearn.metrics import f1_score
 
@@ -203,3 +205,24 @@ def coverage_at_risk(
         if risk <= max_risk:
             best = coverage
     return best
+
+
+def load_resumable_jsonl(path: Path) -> list[dict]:
+    """Records already written to a predictions JSONL, for resuming a run.
+
+    A Kaggle disconnect can kill the process halfway through writing a line.
+    That torn last line is dropped and the file truncated back to the last
+    whole record, so the resumed run appends cleanly instead of crashing on
+    json.loads. A bad line anywhere else is real corruption and still raises."""
+    if not path.exists():
+        return []
+    lines = path.read_text(encoding="utf-8").splitlines()
+    records = []
+    for n, line in enumerate(lines):
+        try:
+            records.append(json.loads(line))
+        except json.JSONDecodeError:
+            if n != len(lines) - 1:
+                raise
+            path.write_text("".join(json.dumps(r) + "\n" for r in records), encoding="utf-8")
+    return records

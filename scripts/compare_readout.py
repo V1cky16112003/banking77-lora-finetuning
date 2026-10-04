@@ -21,7 +21,7 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from src.config import load_task_config
 from src.data import load_banking77_splits
-from src.evaluate import evaluate_dataset
+from src.evaluate import _GENERATE_BATCH_SIZE, evaluate_dataset
 from src.evaluate_core import (
     aurc,
     brier_score,
@@ -103,7 +103,10 @@ def main() -> None:
         "n": n,
         "split": args.split,
         "adapter_dir": args.adapter_dir,
+        # Both batch sizes are recorded because ms_per_example depends on them:
+        # generation batches 16 prompts, the read-out --batch-size messages.
         "readout_batch_size": args.batch_size,
+        "generate_batch_size": _GENERATE_BATCH_SIZE,
         "readout": {
             "accuracy": sum(ro_correct) / n,
             "macro_f1": compute_macro_f1(y_true, ro_pred, config.labels),

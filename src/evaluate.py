@@ -19,7 +19,7 @@ from transformers import LogitsProcessorList, PreTrainedModel, PreTrainedTokeniz
 from transformers.generation.logits_process import PrefixConstrainedLogitsProcessor
 
 from src.config import TaskConfig
-from src.evaluate_core import parse_label
+from src.evaluate_core import load_resumable_jsonl, parse_label
 
 _GENERATE_BATCH_SIZE = 16
 
@@ -109,16 +109,11 @@ def evaluate_dataset(
     `predictions_path` (JSONL, one line per example) as it's produced —
     a disconnect resumes from the last written line instead of restarting
     the whole pass (E2)."""
-    already_done = 0
-    results: list[tuple[str, str | None]] = []
-    if predictions_path.exists():
-        with predictions_path.open("r", encoding="utf-8") as f:
-            for line in f:
-                record = json.loads(line)
-                results.append((record["true_label"], record["predicted_label"]))
-        already_done = len(results)
-
-    remaining = examples[already_done:]
+    results: list[tuple[str, str | None]] = [
+        (record["true_label"], record["predicted_label"])
+        for record in load_resumable_jsonl(predictions_path)
+    ]
+    remaining = examples[len(results) :]
 
     with predictions_path.open("a", encoding="utf-8") as f:
         for batch_start in range(0, len(remaining), _GENERATE_BATCH_SIZE):
