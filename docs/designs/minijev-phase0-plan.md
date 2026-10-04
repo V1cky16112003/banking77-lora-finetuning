@@ -62,4 +62,30 @@ would be scored unfairly.
 - [x] Step 1: metrics in `evaluate_core.py` plus 8 tests (31/31 pass, still no torch import).
 - [x] Step 2: `src/readout.py`. `tests/test_readout.py` shows that KV-cache scoring equals naive per-label scoring (atol 1e-4, tiny random Qwen2).
 - [x] Step 3: `scripts/compare_readout.py`. Data loading verified locally. Full run not possible locally (Qwen weights not cached).
-- [ ] Step 4: Kaggle T4 run with the LoRA checkpoint → gate results.
+- [x] Step 4: Kaggle T4 run (2026-10-04, `r16_a32_all`, val n=500). First run crashed (tuple KV cache on transformers 4.46), fixed in `300ae7f`.
+
+## Results (val, n=500, T4 fp16)
+| | Read-out | Generation |
+|---|---|---|
+| Accuracy | **0.918** | 0.914 |
+| Macro-F1 | 0.911 | 0.905 |
+| ECE | 0.024 | n/a |
+| Brier | 0.121 | n/a |
+| AURC | 0.0085 | n/a |
+| Cov@5% risk | **0.932** | n/a |
+| ms / example | 478 | **177** |
+
+Agreement 99.4%. Gates: accuracy PASS, calibration PASS, **speed FAIL (0.37×, i.e. 2.7× slower)**.
+
+### Why read-out is slower (diagnosis)
+1. **No batching across examples.** Read-out scores one message at a time; generation batches 16.
+2. **Full-vocab log-softmax on 77 rows.** `log_softmax(out.logits.float())` materialises
+   77 × (label_len−1) × 151,936 fp32 values per example (~0.5 GB of traffic), only to gather ~400 of them.
+3. **The 400-token label-list prefix is recomputed per example**, the same as in generation. Only the
+   message differs between examples, so this prefix can be cached once for the whole run (Jev's "state once").
+
+### Fix plan (Phase 0b)
+- Cache the static prompt prefix (everything before the message) once per run.
+- Replace the full log-softmax with `gather(target logits) − logsumexp(logits)`, computed in fp32 chunks.
+- Batch B messages × 77 labels per forward pass.
+- Gate unchanged: ≥5× faster than generation, accuracy unchanged (agreement ≥ 99%).
