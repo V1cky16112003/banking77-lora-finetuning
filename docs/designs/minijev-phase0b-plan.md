@@ -82,4 +82,24 @@ a token-trie over shared label prefixes (`card_…`) is the next lever.
 - [x] `LabelScorer` with prefix cache, two-stage batching and chunked logsumexp.
 - [x] Local: batched == naive (atol 1e-4), batch-of-1 == batch-of-3, split invariant on all
       13,083 Banking77 messages. Green on transformers 4.46.3 and 5.14.
-- [ ] Kaggle T4 run, val n=500, batch size 4.
+- [x] Kaggle T4 run, 2026-10-04 12:43 UTC, val n=500, batch size 4, `r16_a32_all`.
+
+## Results
+| | Phase 0 read-out | **Phase 0b read-out** | Generation |
+|---|---|---|---|
+| Accuracy | 0.918 | **0.918** | 0.914 |
+| ECE | 0.024 | **0.021** | n/a |
+| Cov@5% risk | 0.932 | **0.932** | n/a |
+| ms / example | 478 | **336** | 167 |
+
+Agreement with generation 99.4% (unchanged, so the scores really are unchanged).
+Gates: accuracy PASS, calibration PASS, **speed FAIL (0.50× generation, only 1.4× faster than Phase 0)**.
+
+### What this tells us
+The three planned changes saved 142 ms/example, far less than estimated. Back-of-envelope
+cost for one batch of 4 (lm_head over 3,080 label positions ~0.7 TFLOP, ~4 GB of KV copies)
+should be ~100 ms, i.e. ~25 ms/example. The measured 336 ms means something else dominates,
+and guessing again is not good engineering. **Next step is a profiling run**, not another
+optimisation: time prefix, stage A, the KV repeat, stage B forward, and logsumexp separately
+(CUDA-synchronised), plus check whether 4.46 drops from SDPA to eager attention when it is
+given a padded 2D mask.
