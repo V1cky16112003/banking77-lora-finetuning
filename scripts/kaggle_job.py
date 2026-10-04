@@ -13,8 +13,10 @@ import argparse
 import subprocess
 import sys
 
-# Current job: Phase 0c profiling (docs/designs/minijev-phase0c-plan.md).
-JOB = ["scripts.profile_readout", "--limit", "48"]
+# Current job: Phase 1 packing benchmark (docs/designs/minijev-plan.md).
+# It runs the base Qwen3 backbone, so the Banking77 adapter is not passed on.
+JOB = ["scripts.bench_packing"]
+JOB_USES_ADAPTER = False
 
 
 def main() -> None:
@@ -22,11 +24,9 @@ def main() -> None:
     parser.add_argument("--adapter-dir", required=True)
     parser.add_argument("--output-dir", required=True)
     args = parser.parse_args()
-    command = [
-        sys.executable, "-m", *JOB,
-        "--adapter-dir", args.adapter_dir,
-        "--output-dir", args.output_dir,
-    ]
+    command = [sys.executable, "-m", *JOB, "--output-dir", args.output_dir]
+    if JOB_USES_ADAPTER:
+        command += ["--adapter-dir", args.adapter_dir]
     print("Running:", " ".join(command), flush=True)
     subprocess.run(command, check=True)
 
