@@ -73,3 +73,38 @@ only **Save & Run All**.
   `aten::mm`) as separate entries counting the same kernel time several times. It now ranks by
   self GPU time (`self_gpu_ms`, `self_gpu_share`) and reads `self_device_time_total` on newer torch.
   Read run 2's `top_kernels_b4` by `self_cuda_share`, not `cuda_ms`.
+- **2026-10-04, run 2: complete** (T4, torch 2.11, transformers 4.46.3, SDPA, fp16, n=48).
+
+## Results (run 2)
+| Batch | ms / example | suffix | KV repeat | label pass | logsumexp | peak GB |
+|---|---|---|---|---|---|---|
+| 1 | 360 | 75 | 4 | 266 | 14 | 4.8 |
+| 2 | 323 | 38 | 4 | 267 | 14 | 6.0 |
+| 4 | 313 | 20 | 5 | **274 (88%)** | 14 | 8.5 |
+| 8 | OOM | | | | | |
+| 4, LoRA merged | **259** | 13 | 6 | 226 | 14 | 8.4 |
+
+Roofline (8192² fp16 matmul): 23.3 TFLOP/s. Work: 712 positions × 3.1 GFLOP = 2.2 TFLOP
+per message. Achieved at B=4: 7.1 TFLOP/s = **31% of roofline**.
+
+Predictions: label pass ≥ 80% ✅ (88%); within ~3× of roofline ✅ (3.3×, borderline);
+unmerged LoRA measurable ✅ (merging saves 17%); a perfect trie (266 positions) can't
+reach ~33 ms ✅ (~117 ms at the achieved 7.1 TFLOP/s).
+
+Where the other ~70% goes (top ops by self GPU time, one B=4 batch): matmuls (`aten::mm`
+and the `turing_fp16_s1688gemm` kernels) are the largest single item; next are
+`aten::copy_`, `aten::cat` and elementwise kernels. These are memory traffic: DynamicCache
+concatenating onto the 308-row KV cache in every layer, the 6× `repeat_kv` expansion
+(GQA on 4.46's SDPA path), and LoRA's extra adds and multiplies. Attention itself is ~4%.
+Caveat: `key_averages()` lists both aten ops and the CUDA kernels under them, so the
+`self_gpu_share` values sum to more than 1. Compare the rows, don't add them.
+
+## Decision
+**Compute-bound confirmed.** The read-out is not slowed by a bug. It does ~2.2 TFLOP per
+message because exact scoring has to push every label's tokens through the model. The
+remaining memory-traffic overhead is worth at most ~2–3×, which still misses 5×.
+- Phase 0 closes on exactness (99.4% agreement) + calibration (ECE 0.021). Speed gate re-derived
+  in Phase 2 (`minijev-plan.md`).
+- Phase 0d (trie) is **skipped**: ~117 ms best case, still 0.7× generation. Not worth the GPU time.
+- Carry forward: evaluate with LoRA **merged** (17% free), and on transformers ≥ 4.51
+  check whether `repeat_kv` still materialises (newer SDPA handles GQA natively).
