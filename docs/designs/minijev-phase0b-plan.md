@@ -77,3 +77,9 @@ tokens against ~8 sequential decode steps. The win comes from replacing
 sequential decode steps with parallel ones and from dropping the repeated
 prefix. If it lands below 5×, the report will show the measured breakdown, and
 a token-trie over shared label prefixes (`card_…`) is the next lever.
+
+## Status
+- [x] `LabelScorer` with prefix cache, two-stage batching and chunked logsumexp.
+- [x] Local: batched == naive (atol 1e-4), batch-of-1 == batch-of-3, split invariant on all
+      13,083 Banking77 messages. Green on transformers 4.46.3 and 5.14.
+- [ ] Kaggle T4 run, val n=500, batch size 4.

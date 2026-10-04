@@ -65,6 +65,7 @@ def main() -> None:
     parser.add_argument("--adapter-dir", default=None, help="LoRA adapter; omit for base model")
     parser.add_argument("--split", choices=["val", "test"], default="val")
     parser.add_argument("--limit", type=int, default=None, help="first N examples only")
+    parser.add_argument("--batch-size", type=int, default=4, help="messages per read-out batch")
     parser.add_argument("--output-dir", type=Path, default=Path("eval_runs/readout"))
     args = parser.parse_args()
 
@@ -84,7 +85,7 @@ def main() -> None:
     generate_path.unlink(missing_ok=True)
 
     records, readout_secs = _timed(
-        lambda: readout_dataset(model, tokenizer, examples, config, readout_path)
+        lambda: readout_dataset(model, tokenizer, examples, config, readout_path, args.batch_size)
     )
     generated, generate_secs = _timed(
         lambda: evaluate_dataset(model, tokenizer, examples, config, generate_path)
@@ -102,6 +103,7 @@ def main() -> None:
         "n": n,
         "split": args.split,
         "adapter_dir": args.adapter_dir,
+        "readout_batch_size": args.batch_size,
         "readout": {
             "accuracy": sum(ro_correct) / n,
             "macro_f1": compute_macro_f1(y_true, ro_pred, config.labels),
