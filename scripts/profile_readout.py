@@ -25,7 +25,7 @@ from src.config import load_task_config
 from src.data import load_banking77_splits
 from src.readout import LabelScorer
 
-BATCH_SIZES = (1, 4, 8)
+BATCH_SIZES = (1, 2, 4, 8)
 MERGED_BATCH_SIZE = 4
 TOP_KERNELS = 15
 
@@ -58,6 +58,18 @@ def token_positions_per_message(scorer: LabelScorer, messages: list[str]) -> dic
 
 
 def profile_batches(scorer: LabelScorer, messages: list[str], batch_size: int) -> dict:
+    """Timings for one batch size. An out-of-memory error is a result too
+    (it bounds the usable batch size), so it is recorded rather than raised."""
+    try:
+        return _profile_batches(scorer, messages, batch_size)
+    except torch.OutOfMemoryError as exc:
+        torch.cuda.empty_cache()
+        return {"batch_size": batch_size, "oom": str(exc).split(".")[0]}
+
+
+def _profile_batches(scorer: LabelScorer, messages: list[str], batch_size: int) -> dict:
+    if torch.cuda.is_available():
+        torch.cuda.reset_peak_memory_stats()
     scorer.score(messages[:batch_size])  # warm-up: kernels, allocator
     timings: dict[str, float] = {}
     start = time.perf_counter()
@@ -120,23 +132,38 @@ def main() -> None:
         "roofline_tflops": matmul_tflops(device),
     }
 
+    args.output_dir.mkdir(parents=True, exist_ok=True)
+    out_path = args.output_dir / "profile.json"
+
+    def save() -> None:
+        # Written after every step, so a crash late in the run keeps the earlier results.
+        out_path.write_text(json.dumps(report, indent=2))
+
+    save()
     scorer = LabelScorer(model, tokenizer, config)
     tokens = token_positions_per_message(scorer, messages)
     report["token_positions_per_message"] = tokens
     n_params = sum(p.numel() for p in model.parameters())
     report["model_params_billion"] = n_params / 1e9
 
-    report["unmerged"] = [profile_batches(scorer, messages, b) for b in BATCH_SIZES]
+    report["unmerged"] = []
+    for batch_size in BATCH_SIZES:
+        report["unmerged"].append(profile_batches(scorer, messages, batch_size))
+        print(json.dumps(report["unmerged"][-1]), flush=True)
+        save()
     report["top_kernels_b4"] = top_kernels(scorer, messages[:MERGED_BATCH_SIZE])
+    save()
 
     if args.adapter_dir:
         merged = model.merge_and_unload().eval()
         report["merged_lora"] = profile_batches(
             LabelScorer(merged, tokenizer, config), messages, MERGED_BATCH_SIZE
         )
+        save()
 
     # Efficiency: forward FLOPs ~ 2 * params per token position (attention ignored).
-    best = min(report["unmerged"], key=lambda r: r["ms_per_example"])
+    completed = [r for r in report["unmerged"] if "oom" not in r]
+    best = min(completed, key=lambda r: r["ms_per_example"])
     flops = 2 * n_params * (tokens["suffix"] + tokens["label_pass_padded"])
     achieved = flops / (best["ms_per_example"] / 1000) / 1e12
     report["efficiency"] = {
@@ -146,8 +173,7 @@ def main() -> None:
         "best_batch_size": best["batch_size"],
     }
 
-    args.output_dir.mkdir(parents=True, exist_ok=True)
-    (args.output_dir / "profile.json").write_text(json.dumps(report, indent=2))
+    save()
     print(json.dumps(report, indent=2))
 
 

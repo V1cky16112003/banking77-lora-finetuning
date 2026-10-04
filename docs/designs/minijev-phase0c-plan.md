@@ -50,3 +50,11 @@ only **Save & Run All**.
   exact intermediate step.
 - **Not compute-bound** (low efficiency, one kernel dominating): fix that
   specific kernel and re-run the Phase 0 gate.
+
+## Run log
+- **2026-10-04 21:21 UTC, run 1: CUDA OOM at batch size 8** in the label pass, inside transformers'
+  `repeat_kv`. Qwen2.5-1.5B has 12 query heads over 2 KV heads, and 4.46's SDPA path materialises
+  the KV cache 6x per row per layer (616 rows x ~470 positions). That 6x copy also runs at B=4, so it
+  is extra memory traffic worth measuring, not only an OOM. The profiler lost the B=1/B=4 results
+  because it only saved at the end. Fixed: per-batch-size OOM is recorded as a result, batch
+  sizes are now 1/2/4/8, and the JSON is saved after every step.
