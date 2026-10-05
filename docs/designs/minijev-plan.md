@@ -87,18 +87,23 @@ Revised 2026-10-06 after checking the source list against Kev's training data
   the gold option sits (must be ~uniform); no Banking77 text, no excluded CLINC
   intent, no train/eval text overlap (tests assert the checks).
 
-## Phase 4 — RLCD-lite training (≈1 week of Kaggle runs)
-- `src/minijev/train.py`: LoRA (r=16) on Qwen3-1.7B Base, fp16 backbone,
-  fp32 head and loss; loss = log score (soft CE) with config flags for a Brier
-  term and a permutation-consistency KL term.
-- Resume-from-checkpoint across Kaggle sessions (reuse current notebook
-  mechanism).
-- Run matrix: {log, log + Brier} × {with, without permutation KL}; teacher
-  soft labels only if the teacher set exists.
-- Fit temperature T on dev; store it with the checkpoint.
-- **Gate:** on held-out sources, accuracy ≥ SFT-cross-entropy baseline and
-  ECE ≤ 0.05 **after** temperature scaling. Report T and raw ECE; not gated
-  (Kev's adapters land at T ≈ 2.2–2.4).
+## Phase 4 — RLCD-lite training (2 Kaggle sessions)
+Revised 2026-10-06 (details: `minijev-phase4-plan.md`).
+- `src/minijev/train.py`: LoRA (r=16, attention + MLP) on Qwen3-1.7B Base,
+  fp16 backbone with fp32 LoRA, head and loss; loss = log score (soft CE),
+  optional Brier term; DDP over both T4s; gradient checkpointing.
+- Kaggle-proof: stops itself before the 12h limit (a timed-out session keeps no
+  output), checkpoints every 30 min, resumes from the previous notebook version
+  attached as input, LR schedule sized from measured step time over 21 planned hours.
+- **One main run**, not the 2×2 matrix: the weekly quota (~29h left) fits two
+  ~11h sessions plus Phase 5 evaluation. The "SFT cross-entropy baseline" arm
+  is dropped: with one-hot targets the log score *is* cross-entropy, so it
+  would repeat the main run. Brier and permutation-KL variants wait for a
+  later quota week.
+- Fit temperature T on dev; store it with the results.
+- **Gate:** on held-out out-of-domain sources (QNLI, PAWS, Emotion, TweetEval),
+  ECE ≤ 0.05 after temperature scaling, and accuracy clearly above chance per
+  source. Report raw ECE, T, and zero-shot Banking77 accuracy (not gated).
 
 Learn: proper scoring rules — why the optimum of log score and Brier is the
 true distribution, and why one-hot training still ends up overconfident.
