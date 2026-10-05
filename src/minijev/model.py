@@ -22,7 +22,7 @@ import torch.nn as nn
 from transformers import AutoModel, AutoTokenizer, PreTrainedModel
 
 from src.minijev.encoding import EncodedRequest, encode_request
-from src.minijev.packing import pack, packed_features
+from src.minijev.packing import pack, packed_forward
 from src.minijev.schema import SystemOneRequest, to_answers
 
 HEAD_DIM = 256
@@ -63,17 +63,27 @@ class DecisionModel(nn.Module):
     def encode(self, request: SystemOneRequest) -> EncodedRequest:
         return encode_request(self.tokenizer, request)
 
-    def question_logits(self, encoded: EncodedRequest) -> list[torch.Tensor]:
-        """Option logits per question, from one packed forward pass.
-        (packed_features runs without gradients; Phase 4 training needs a grad path.)"""
-        features = packed_features(
-            self.backbone, pack(encoded.state_ids, [q.ids for q in encoded.questions])
-        )
+    def forward(self, batch: list[EncodedRequest]) -> list[list[torch.Tensor]]:
+        """Option logits per request, per question: one padded forward pass over
+        the batch, each request packed. Keeps gradients (training calls this
+        through DDP); inference goes through probs()."""
+        pad_id = self.tokenizer.pad_token_id
+        pad_id = self.tokenizer.eos_token_id if pad_id is None else pad_id
+        packs = [pack(e.state_ids, [q.ids for q in e.questions]) for e in batch]
         logits = []
-        for question, hidden in zip(encoded.questions, features):
-            hidden = hidden.float()
-            logits.append(self.head(hidden[question.decide_offset], hidden[question.option_offsets]))
+        for encoded, features in zip(batch, packed_forward(self.backbone, packs, pad_id)):
+            per_question = []
+            for question, hidden in zip(encoded.questions, features):
+                # The head and the loss stay fp32, even inside fp16 autocast (training).
+                with torch.autocast(hidden.device.type, enabled=False):
+                    hidden = hidden.float()
+                    per_question.append(self.head(hidden[question.decide_offset], hidden[question.option_offsets]))
+            logits.append(per_question)
         return logits
+
+    def question_logits(self, encoded: EncodedRequest) -> list[torch.Tensor]:
+        """Option logits per question for one request."""
+        return self.forward([encoded])[0]
 
     @torch.no_grad()
     def probs(self, encoded: EncodedRequest) -> list[list[float]]:

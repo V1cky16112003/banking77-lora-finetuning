@@ -70,12 +70,25 @@ def block_mask(segments: list[int], dtype: torch.dtype, device: torch.device) ->
     state or in i's own question. Allowed = 0, blocked = finfo(dtype).min
     (not -inf, so a softmax over a row can never become NaN). Additive rather
     than boolean because eager attention adds the mask to the scores."""
-    seg = torch.tensor(segments, device=device)
-    causal = torch.ones(len(segments), len(segments), dtype=torch.bool, device=device).tril()
-    visible = (seg[None, :] == 0) | (seg[None, :] == seg[:, None])
-    allowed = causal & visible
+    return block_mask_batch([segments], len(segments), dtype, device)
+
+
+def block_mask_batch(
+    rows: list[list[int]], length: int, dtype: torch.dtype, device: torch.device
+) -> torch.Tensor:
+    """block_mask for a right-padded batch: [B, 1, length, length]. Padding keys
+    are blocked for every query; a padding query keeps only its own diagonal, so
+    no row is ever fully blocked. Real tokens never see padding (it sits after
+    them, and belongs to no segment)."""
+    seg = torch.full((len(rows), length), -1, device=device)
+    for b, row in enumerate(rows):
+        seg[b, : len(row)] = torch.tensor(row, device=device)
+    causal = torch.ones(length, length, dtype=torch.bool, device=device).tril()
+    visible = (seg[:, None, :] == 0) | (seg[:, None, :] == seg[:, :, None])
+    allowed = causal[None] & visible & (seg != -1)[:, None, :]
+    allowed |= torch.eye(length, dtype=torch.bool, device=device)[None]
     mask = torch.zeros(allowed.shape, dtype=dtype, device=device)
-    return mask.masked_fill(~allowed, torch.finfo(dtype).min)[None, None]
+    return mask.masked_fill(~allowed, torch.finfo(dtype).min)[:, None]
 
 
 def _features(out) -> torch.Tensor:
@@ -83,20 +96,34 @@ def _features(out) -> torch.Tensor:
 
 
 def _model_dtype(model: PreTrainedModel) -> torch.dtype:
-    return next(model.parameters()).dtype
+    """The backbone's compute dtype. Read from the embeddings, not the first
+    parameter: with LoRA the adapter weights are fp32 on an fp16 backbone."""
+    return model.get_input_embeddings().weight.dtype
+
+
+def packed_forward(model: PreTrainedModel, batch: list[Packed], pad_id: int) -> list[list[torch.Tensor]]:
+    """One forward pass over a right-padded batch of packed requests, with
+    gradients (training). -> per request, per question [len_q, F]."""
+    device = model.device
+    length = max(len(p.ids) for p in batch)
+    ids = torch.full((len(batch), length), pad_id, dtype=torch.long, device=device)
+    positions = torch.zeros((len(batch), length), dtype=torch.long, device=device)
+    for b, p in enumerate(batch):
+        ids[b, : len(p.ids)] = torch.tensor(p.ids, device=device)
+        positions[b, : len(p.ids)] = torch.tensor(p.positions, device=device)
+    out = model(
+        input_ids=ids,
+        position_ids=positions,
+        attention_mask=block_mask_batch([p.segments for p in batch], length, _model_dtype(model), device),
+    )
+    feats = _features(out)
+    return [[feats[b, start:end] for start, end in p.question_spans] for b, p in enumerate(batch)]
 
 
 @torch.no_grad()
 def packed_features(model: PreTrainedModel, packed: Packed) -> list[torch.Tensor]:
     """One forward pass over state + all questions. -> per question [len_q, F]."""
-    device = model.device
-    out = model(
-        input_ids=torch.tensor([packed.ids], device=device),
-        position_ids=torch.tensor([packed.positions], device=device),
-        attention_mask=block_mask(packed.segments, _model_dtype(model), device),
-    )
-    feats = _features(out)[0]
-    return [feats[start:end] for start, end in packed.question_spans]
+    return packed_forward(model, [packed], pad_id=0)[0]
 
 
 @torch.no_grad()
