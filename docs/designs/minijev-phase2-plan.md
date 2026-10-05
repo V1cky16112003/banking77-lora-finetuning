@@ -64,4 +64,40 @@ the state is large next to the questions, which is the shape Jev is built for.
 ## Status
 - [x] schema, encoding, model; 23 new tests green (87 passed, 1 skipped overall).
 - [x] Benchmark smoke-tested on CPU with a tiny model.
-- [ ] Kaggle T4 run.
+- [x] Kaggle T4 run, 2026-10-05. **Gate PASS.**
+
+## Results (T4, fp16, Qwen3-1.7B-Base, transformers 5.14.1, untrained head)
+
+**Well typed:** the example response has every question key, each choice is one of its
+declared options and is the argmax of its probabilities, probabilities sum to 1, and
+`output_tokens` is 0. The values are random (untrained head) and should not be read.
+
+**Shared state (gate):** ~520-token state, three-option questions, median of 5.
+
+| k | tokens | ms |
+|---|---|---|
+| 1 | 542 | 101 |
+| 2 | 561 | 103 |
+| 4 | 603 | 109 |
+| 8 | 680 | 137 |
+
+Extra question: (137 − 101) / 7 ≈ **5.2 ms = 5% of a one-question request**
+(gate ≤ 25%). **PASS.** Eight questions cost 1.36× one question.
+
+**Banking77 shape (reported, not gated):** one message + one 77-option Choice,
+~487 tokens: **90 ms per request, 1.85× faster than generation** (167 ms/example,
+Phase 0b). That matches the Phase 0c prediction of ~1.5–3×: the read-out pays
+the same ~480-token prefill as generation but drops the decode loop. Not a like-for-
+like comparison yet: different backbone (Qwen3-1.7B vs Qwen2.5-1.5B + LoRA), batch 1
+vs batch 16, untrained head.
+
+**fp16 consistency:** 8 questions packed vs each alone: max |Δp| 0.0038, **0 argmax
+flips** out of 8. The Phase 1 fp16 drift does not change answers here; recheck on a
+trained head, where probabilities will be sharper.
+
+**Side note:** the run took ~40 minutes of wall time, against a few minutes of
+benchmark work. Where the time went (package install, model download, Kaggle queue)
+was not established; check the notebook timing before the Phase 4 training runs, where
+wall time costs quota.
+
+Phase 2 is done. Next: Phase 3, the synthetic data generator.
