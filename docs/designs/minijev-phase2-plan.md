@@ -95,9 +95,9 @@ vs batch 16, untrained head.
 flips** out of 8. The Phase 1 fp16 drift does not change answers here; recheck on a
 trained head, where probabilities will be sharper.
 
-**Side note:** the run took ~40 minutes of wall time, against a few minutes of
-benchmark work. Where the time went (package install, model download, Kaggle queue)
-was not established; check the notebook timing before the Phase 4 training runs, where
-wall time costs quota.
+**Side note:** the session showed RUNNING for ~40 minutes, but the notebook log
+spans only ~3 minutes: ~90 s clone and pip install, ~60 s model download and load,
+~10 s of benchmark. The rest was Kaggle's queue and version saving, outside the
+code, so there is nothing to optimise in the job itself.
 
 Phase 2 is done. Next: Phase 3, the synthetic data generator.
