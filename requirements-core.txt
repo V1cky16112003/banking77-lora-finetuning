@@ -6,3 +6,4 @@
 pyyaml==6.0.2
 scikit-learn==1.5.2
 pytest==8.3.3
+pydantic==2.9.2  # src/minijev/schema.py: the /v1/systemone contract is CI-tested
