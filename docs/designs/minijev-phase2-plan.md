@@ -37,7 +37,7 @@ stays untrained until Phase 4.
   options, unknown types, empty requests), rendering, both confidence formulas at
   their fixed points, rounding tolerance at 255 options, response shapes.
   Also run in a CI-like Python 3.11 env with `requirements-core.txt` + pydantic 2.9.2.
-- `tests/test_minijev_model.py` (9 tests, tiny random Qwen3 + cached Qwen tokenizer):
+- `tests/test_minijev_model.py` (8 tests, tiny random Qwen3 + cached Qwen tokenizer):
   encoding layout; a state/instruction/option containing delimiter strings can't
   add or close options (the test fails if splitting is removed); state limit;
   `decide()` end to end, well typed for choice / noul / score; packed questions ==
@@ -62,6 +62,6 @@ the first, and the gate fails by construction. Sharing the state only pays when
 the state is large next to the questions, which is the shape Jev is built for.
 
 ## Status
-- [x] schema, encoding, model; 24 new tests green (87 passed, 1 skipped overall).
+- [x] schema, encoding, model; 23 new tests green (87 passed, 1 skipped overall).
 - [x] Benchmark smoke-tested on CPU with a tiny model.
 - [ ] Kaggle T4 run.
