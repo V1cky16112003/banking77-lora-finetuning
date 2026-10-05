@@ -33,7 +33,7 @@ stays untrained until Phase 4.
   and a fitted T stays meaningful; dividing by T never changes the argmax.
 
 ## Local verification
-- `tests/test_minijev_schema.py` (14 tests, no torch): validation limits (1..255
+- `tests/test_minijev_schema.py` (15 tests, no torch): validation limits (1..255
   options, unknown types, empty requests), rendering, both confidence formulas at
   their fixed points, rounding tolerance at 255 options, response shapes.
   Also run in a CI-like Python 3.11 env with `requirements-core.txt` + pydantic 2.9.2.
@@ -62,6 +62,6 @@ the first, and the gate fails by construction. Sharing the state only pays when
 the state is large next to the questions, which is the shape Jev is built for.
 
 ## Status
-- [x] schema, encoding, model; 23 new tests green (87 passed, 1 skipped overall).
+- [x] schema, encoding, model; 24 new tests green (87 passed, 1 skipped overall).
 - [x] Benchmark smoke-tested on CPU with a tiny model.
 - [ ] Kaggle T4 run.
