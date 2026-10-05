@@ -53,7 +53,7 @@ Output `data/minijev/` (gitignored; rebuilt in ~1 minute from pinned revisions).
   (3,080), the same set as the fine-tuned classifier.
 
 ## Verification
-- `tests/test_minijev_data.py`, 27 tests, no network (CI-safe):
+- `tests/test_minijev_data.py`, 26 tests, no network (CI-safe):
   builders, validation, gold-position spread, policy rule semantics (band labels
   re-derived from the level text; decision rules in order; ties), converters on
   hand-made rows, CLINC exclusion, and a full `build()` on a fake loader with a
