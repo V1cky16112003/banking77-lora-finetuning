@@ -53,11 +53,13 @@ Learn: KV caching, attention masks, why context budget = state + longest questio
   option containing a delimiter string cannot add an option; one question's
   text is invisible to its siblings; option-order flip rate (after training).
 - **Gate:** API works end-to-end on the untrained model (random but well-typed);
-  isolation and boundary-forgery tests pass. Speed: report per-question cost
-  for a 77-option Banking77 question vs generation, and the marginal cost of
-  questions 2..8 on one state. Gate on the second: the extra question costs
-  ≤ 25% of the first. The first-question cost is reported, not gated
-  (expected 1.5–3× faster than generation, not 5×).
+  isolation and boundary-forgery tests pass. Speed, on a ~520-token state with
+  1..8 short questions: each extra question costs ≤ 25% of a one-question
+  request. A Banking77-shaped request (15-token message, one 77-option
+  question, ~480 tokens) is reported next to generation, not gated: there the
+  options dominate the input, so sharing the state can't help.
+  *(Revised 2026-10-05: the earlier wording gated the extra-question cost on
+  77-option questions, which can't pass by construction.)*
 
 ## Phase 3 — Synthetic data generator (≈4 days)
 - `src/minijev/data/`: converters for CLINC150, MNLI, BoolQ, SST-2, AG News,

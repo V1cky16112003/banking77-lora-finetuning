@@ -13,9 +13,9 @@ import argparse
 import subprocess
 import sys
 
-# Current job: Phase 1 packing benchmark (docs/designs/minijev-plan.md).
+# Current job: Phase 2 decision-API benchmark (docs/designs/minijev-phase2-plan.md).
 # It runs the base Qwen3 backbone, so the Banking77 adapter is not passed on.
-JOB = ["scripts.bench_packing"]
+JOB = ["scripts.bench_decide"]
 JOB_USES_ADAPTER = False
 
 
