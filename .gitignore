@@ -27,3 +27,6 @@ venv/
 # OS/editor
 .DS_Store
 .vscode/
+
+# MiniJev Phase 3 data (rebuilt from pinned sources by src/minijev/data/build.py)
+data/minijev/
