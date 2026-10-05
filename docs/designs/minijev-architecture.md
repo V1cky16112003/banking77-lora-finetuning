@@ -182,23 +182,31 @@ out-of-domain ECE 0.12 → 0.05 after scaling; only the full fine-tune of its
 the gate is on ECE *after* temperature scaling, and T is reported, not gated.
 Store T with the checkpoint and apply it only at inference.
 
-## 5. Data — synthetic decision tasks
+## 5. Data — decision tasks
 
-Records: `{state, questions:[{type, instructions, options}], targets:[q_vector]}`.
+Records: `{request, targets}`: a `/v1/systemone` request plus a probability
+vector per question over its options (one-hot from labels; soft where a source
+has annotator distributions). Full list and caps: `minijev-phase3-plan.md`.
 
 Sources:
-1. **Converted labeled datasets** → one-hot `q`: CLINC150, MNLI, BoolQ,
-   SST-2, AG News … re-phrased as Choice/Noul/Score over random option subsets.
-2. **Soft-label datasets** → aleatoric `q`: ChaosNLI (100 annotators).
-3. **Teacher-labeled synthetic states** → soft `q` from a frontier LLM asked for
-   option probabilities (averaged over a few samples / two teachers, like
-   TypeSafe's eval reference). States = generated tickets, logs, JSON records,
-   game states; questions = route/classify/extract/verify.
+1. **Fixed-label datasets** → Choice/Noul/Score over random option subsets:
+   MNLI, BoolQ, AG News, SST-5 and Yelp (ordered → Score), CLINC150 without
+   the banking and credit-card domains.
+2. **Multiple-choice QA** (ARC, OpenBookQA, CommonsenseQA): option texts differ
+   per question, so the model must *read* options rather than memorise label
+   meanings. The skill zero-shot Banking77 depends on.
+3. **Rule-based policy records**: generated orders, loan applications and
+   support tickets as JSON or prose, with several questions each (thresholds,
+   bands, extraction, multi-condition rules). Labels are computed by code, so
+   they are exact and free. Kev trains on similar generated policies; this
+   replaces the paid teacher set for v1.
 
-Augmentations: shuffle options, vary cardinality 2–255, distractor options,
-paraphrased prompts, JSON vs prose state, 1–8 questions per state.
+Augmentations: shuffle unordered options, vary cardinality, paraphrased
+instructions, JSON vs prose state, 1–8 questions per state.
 **Hold out Banking77 entirely** for the zero-shot eval, and hold out whole
-*sources* (not just rows) for an out-of-domain split, as Kev does.
+*sources* (QNLI, PAWS, Emotion, TweetEval; ChaosNLI in Phase 5) for an
+out-of-domain split, as Kev does. Kev itself trains on Banking77, so a Kev
+Banking77 score is not zero-shot.
 
 Start with short training contexts (Kev: state ≤ 384, question branch ≤ 1024,
 packed ≤ 2048 tokens), which fit a T4.

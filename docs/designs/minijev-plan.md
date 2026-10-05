@@ -61,18 +61,31 @@ Learn: KV caching, attention masks, why context budget = state + longest questio
   *(Revised 2026-10-05: the earlier wording gated the extra-question cost on
   77-option questions, which can't pass by construction.)*
 
-## Phase 3 — Synthetic data generator (≈4 days)
-- `src/minijev/data/`: converters for CLINC150, MNLI, BoolQ, SST-2, AG News,
-  ChaosNLI (soft labels) → `{state, questions, targets}` JSONL.
-- Augment: random option subsets (2–255), distractors, paraphrased prompts,
-  JSON vs prose state, multi-question records (1–8 per state).
-- Teacher-labeled set (optional, budgeted): ~5–10k synthetic states labeled
-  with option probabilities from a frontier LLM; cache results to disk.
-- **Hold out Banking77** (zero-shot eval), a slice of each source (dev/test),
-  and at least two **whole sources** (out-of-domain split).
+## Phase 3 — Training data (≈4 days)
+Revised 2026-10-06 after checking the source list against Kev's training data
+(details and reasoning in `minijev-phase3-plan.md`).
+- `src/minijev/data/`: converters → `{request, targets}` JSONL, where `request`
+  is a `/v1/systemone` request and `targets` a probability vector per question.
+- **Train sources:** MNLI, BoolQ, AG News (capped), SST-5, Yelp (capped),
+  CLINC150 minus its banking and credit-card domains and any intent named like a
+  Banking77 label, multiple-choice QA (ARC, OpenBookQA, CommonsenseQA), and a
+  rule-based policy generator (JSON/prose records, several questions each,
+  labels computed by code).
+- **Why multiple-choice QA:** every other source has a fixed label set, which a
+  model can learn without reading the options. Varied option texts force the
+  pointer head to read them, which zero-shot Banking77 depends on.
+- **Held out (eval only):** Banking77 (zero-shot), QNLI, PAWS, Emotion,
+  TweetEval sentiment. ChaosNLI (calibration vs human disagreement) moves to
+  Phase 5; it exists only as an unofficial CC BY-NC mirror.
+- Augment: random option subsets, shuffled option order (never for ordered
+  Score levels), paraphrased instructions, JSON vs prose state, derived extra
+  questions (1–8 per state).
+- No paid teacher set in v1: the policy generator covers Jev-shaped requests
+  with exact labels at no cost.
 - Training context to start: state ≤ 384, question branch ≤ 1024, packed ≤ 2048.
-- **Gate:** ≥200k questions; label-distribution report; no Banking77 leakage
-  (test asserts it).
+- **Gate:** ≥200k train questions; label-distribution report including where
+  the gold option sits (must be ~uniform); no Banking77 text, no excluded CLINC
+  intent, no train/eval text overlap (tests assert the checks).
 
 ## Phase 4 — RLCD-lite training (≈1 week of Kaggle runs)
 - `src/minijev/train.py`: LoRA (r=16) on Qwen3-1.7B Base, fp16 backbone,
