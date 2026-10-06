@@ -70,8 +70,8 @@ Session 2: **Add Input → Your Work → this notebook's session-1 version**, th
 
 ## Status
 - [x] Training code, tests, Kaggle job.
-- [ ] Session 1.
-- [ ] Session 2.
+- [x] Session 1 (gate not met at the midpoint; see run log).
+- [ ] Session 2: on hold, decision pending (see run log).
 
 ## Run log
 - **2026-10-06 05:25 UTC, session 1, attempt 1: failed in 4 minutes, ~4.5 GPU-min used.**
@@ -82,4 +82,21 @@ Session 2: **Add Input → Your Work → this notebook's session-1 version**, th
   quantise) and runs a LoRA preflight on a tiny model first, so environment errors
   stop in seconds with a clear message. Reproduced locally with a stub torchao 0.10.0:
   same error with it, preflight passes without.
-
+- **2026-10-06 05:50–16:55 UTC, session 1, attempt 2: completed, ~10.5 GPU-h used.**
+  Preflight passed; DDP world 2; setup 174 s. 152,507 train records after the context
+  filter (dropped: Yelp 2,135, BoolQ 64, MNLI 1). 4.0 s/step → LR schedule sized to
+  18,847 steps for 21 h. Stopped by `--max-hours` at step 9,683 (10.55 h trained),
+  checkpointed, evaluated. No OOM, no retry.
+  - **The run covered ~4 epochs** (2,451 steps per epoch). Mean train loss per
+    epoch: 0.338 → 0.200 → 0.122 → 0.076.
+  - **Dev (in-domain, 2,230 questions):** accuracy 0.851, raw NLL 0.679, raw ECE 0.103.
+    T fitted on dev = **3.20** (Kev's adapters: 2.2–2.4). Scaled ECE 0.018.
+    The gap between train loss (0.08) and dev NLL (0.68) is overfitting, and the
+    model is overconfident; a T this high is how that shows up.
+  - **Held-out, after T scaling** (accuracy / chance / ECE): QNLI 0.760 / 0.50 / 0.077,
+    TweetEval 0.626 / 0.33 / 0.069, Emotion 0.484 / 0.17 / 0.127, PAWS 0.634 / 0.50 /
+    0.216, Banking77 zero-shot 0.614 / 0.013 / 0.058. Out-of-domain ECE (all four) 0.074.
+  - **Gate: FAIL** (ECE 0.074 > 0.05). Accuracy is above chance on every source;
+    PAWS is the weakest (13 points above chance, confidently wrong).
+  - Session 2 as planned would take this to ~7.7 epochs; with no dev-loss curve, it
+    could deepen the overfitting rather than fix calibration.
