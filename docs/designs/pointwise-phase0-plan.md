@@ -1,6 +1,6 @@
-# MiniJev Phase 0: Logit Read-out (execution plan)
+# Pointwise Phase 0: Logit Read-out (execution plan)
 
-Parent: `minijev-plan.md` Phase 0. Date: 2026-10-03.
+Parent: `pointwise-plan.md` Phase 0. Date: 2026-10-03.
 
 ## Goal
 Get a decision on Banking77 without calling `generate()`. Score all 77 labels from

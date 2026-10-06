@@ -1,4 +1,4 @@
-"""Phase 2 benchmark: the decision API on a T4 (docs/designs/minijev-phase2-plan.md).
+"""Phase 2 benchmark: the decision API on a T4 (docs/designs/pointwise-phase2-plan.md).
 
 Untrained pointer head on the Qwen3-1.7B-Base backbone, so the answers are
 random but must be well typed. Measures:
@@ -24,8 +24,8 @@ import transformers
 from scripts.bench_packing import build_request, time_ms
 from src.config import load_task_config
 from src.data import load_banking77_splits
-from src.minijev.model import DecisionModel
-from src.minijev.schema import SystemOneRequest
+from src.pointwise.model import DecisionModel
+from src.pointwise.schema import SystemOneRequest
 
 MODEL_NAME = "Qwen/Qwen3-1.7B-Base"
 N_BANKING_MESSAGES = 32

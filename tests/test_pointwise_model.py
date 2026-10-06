@@ -1,4 +1,4 @@
-"""Encoding and the untrained decision model (MiniJev Phase 2 gate: the API
+"""Encoding and the untrained decision model (Pointwise Phase 2 gate: the API
 works end to end, well typed, on random weights).
 
 Tiny randomly initialised Qwen3 backbone plus the cached Qwen tokenizer, so no
@@ -10,7 +10,7 @@ import pytest
 torch = pytest.importorskip("torch")
 transformers = pytest.importorskip("transformers")
 
-from src.minijev.encoding import (  # noqa: E402
+from src.pointwise.encoding import (  # noqa: E402
     DECIDE,
     OPTION_CLOSE,
     OPTION_OPEN,
@@ -19,8 +19,8 @@ from src.minijev.encoding import (  # noqa: E402
     encode_request,
     user_tokens,
 )
-from src.minijev.model import DecisionModel  # noqa: E402
-from src.minijev.schema import SystemOneRequest  # noqa: E402
+from src.pointwise.model import DecisionModel  # noqa: E402
+from src.pointwise.schema import SystemOneRequest  # noqa: E402
 
 REQUEST = {
     "state": "Shoes arrived two weeks late and in the wrong size. Also two charges on my card.",

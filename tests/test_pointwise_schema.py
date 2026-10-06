@@ -3,7 +3,7 @@ Pure pydantic, no torch, so it runs in CI."""
 import pytest
 from pydantic import ValidationError
 
-from src.minijev.schema import (
+from src.pointwise.schema import (
     MAX_OPTIONS,
     SystemOneRequest,
     choice_confidence,

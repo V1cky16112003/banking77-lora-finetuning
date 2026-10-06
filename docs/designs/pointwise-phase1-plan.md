@@ -1,13 +1,13 @@
-# MiniJev Phase 1: Shared-prefix parallel questions (execution plan)
+# Pointwise Phase 1: Shared-prefix parallel questions (execution plan)
 
-Parent: `minijev-plan.md` Phase 1. Date: 2026-10-04.
+Parent: `pointwise-plan.md` Phase 1. Date: 2026-10-04.
 
 ## Goal
 One state, k questions, the state computed once. Each question must get exactly
 what a separate "state + this question" call would give it, and must not see
 its siblings.
 
-## Design: three equivalent forms (`src/minijev/packing.py`)
+## Design: three equivalent forms (`src/pointwise/packing.py`)
 | Form | How | When |
 |---|---|---|
 | packed | state + all questions in one sequence; block attention mask; positions restart at `len(state)` per question | one-shot requests |
@@ -46,7 +46,7 @@ mask, or using unrestarted positions, makes the equivalence and isolation tests 
 Qwen3-1.7B-Base backbone, fp16, SDPA, a ~520-token Banking77 chat as the state,
 ~18-token yes/no questions, k = 1, 4, 16, 64. Times separate / packed / branches
 / branches_warm / rows (median of 5), and the fp16 drift between packed and
-separate features. Output `minijev-output/packing_bench.json`.
+separate features. Output `pointwise-output/packing_bench.json`.
 
 **Gate:** equivalence tests pass (done locally); latency grows sub-linearly in k,
 i.e. `growth_k1_to_kmax` well below 64 for packed and branches, while separate

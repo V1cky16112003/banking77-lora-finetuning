@@ -15,7 +15,7 @@ from __future__ import annotations
 import random
 from dataclasses import dataclass
 
-from src.minijev.data import records as R
+from src.pointwise.data import records as R
 
 
 @dataclass(frozen=True)

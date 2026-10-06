@@ -1,4 +1,4 @@
-"""Decision model: Qwen backbone + packed questions + pointer head (MiniJev Phase 2).
+"""Decision model: Qwen backbone + packed questions + pointer head (Pointwise Phase 2).
 
     q   = W_q h[<decide>]                 what this question is asking
     k_j = W_k h[</opt> of option j]       what option j says, in context
@@ -10,7 +10,7 @@ its text, so nothing has to learn what "option 7" means: unseen label sets work
 by construction, and 255 is only an API cap (architecture §3.3). The answer is
 always one of the declared options, because the softmax only runs over them.
 
-All questions of a request run in one packed pass (src/minijev/packing.py), so
+All questions of a request run in one packed pass (src/pointwise/packing.py), so
 they share the state's computation and can't see each other.
 """
 from __future__ import annotations
@@ -21,9 +21,9 @@ import torch
 import torch.nn as nn
 from transformers import AutoModel, AutoTokenizer, PreTrainedModel
 
-from src.minijev.encoding import EncodedRequest, encode_request
-from src.minijev.packing import pack, packed_forward
-from src.minijev.schema import SystemOneRequest, to_answers
+from src.pointwise.encoding import EncodedRequest, encode_request
+from src.pointwise.packing import pack, packed_forward
+from src.pointwise.schema import SystemOneRequest, to_answers
 
 HEAD_DIM = 256
 

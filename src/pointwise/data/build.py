@@ -1,4 +1,4 @@
-"""Build the MiniJev Phase 3 data (docs/designs/minijev-phase3-plan.md).
+"""Build the Pointwise Phase 3 data (docs/designs/pointwise-phase3-plan.md).
 
 Writes to --out:
     train.jsonl    training records, sources mixed
@@ -8,8 +8,8 @@ Writes to --out:
     report.json    counts, label report, leakage checks and the gate
 
 Usage (from the repo root):
-    python -m src.minijev.data.build --out data/minijev
-    python -m src.minijev.data.build --out /tmp/minijev-smoke --limit-rows 200   # quick check
+    python -m src.pointwise.data.build --out data/pointwise
+    python -m src.pointwise.data.build --out /tmp/pointwise-smoke --limit-rows 200   # quick check
 """
 from __future__ import annotations
 
@@ -20,9 +20,9 @@ import random
 import re
 from pathlib import Path
 
-from src.minijev.data import records as R
-from src.minijev.data import sources as S
-from src.minijev.data.policies import policy_records
+from src.pointwise.data import records as R
+from src.pointwise.data import sources as S
+from src.pointwise.data.policies import policy_records
 
 GATE_MIN_TRAIN_QUESTIONS = 200_000
 # A source's gold-first rate may differ from the random expectation by this much.
@@ -195,7 +195,7 @@ def make_report(out: dict, checks: dict, full_size: bool) -> dict:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    parser.add_argument("--out", type=Path, default=Path("data/minijev"))
+    parser.add_argument("--out", type=Path, default=Path("data/pointwise"))
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--limit-rows", type=int, default=None, help="rows per source split, for a quick check")
     args = parser.parse_args()

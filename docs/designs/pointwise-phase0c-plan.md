@@ -1,6 +1,6 @@
-# MiniJev Phase 0c: Profile the read-out (execution plan)
+# Pointwise Phase 0c: Profile the read-out (execution plan)
 
-Parent: `minijev-phase0b-plan.md`. Date: 2026-10-04.
+Parent: `pointwise-phase0b-plan.md`. Date: 2026-10-04.
 
 ## Hypothesis (from local token counting, before any GPU time)
 The read-out is **compute-bound by design**, not slowed by a bug.
@@ -31,11 +31,11 @@ generation (~33 ms/example).
 5. The same at B=4 with LoRA merged into the base weights (`merge_and_unload`).
 6. `torch.profiler` top-15 CUDA kernels for one B=4 batch.
 
-Output: `minijev-profile/profile.json`, plus a printed report.
+Output: `pointwise-profile/profile.json`, plus a printed report.
 
 ## Kaggle job runner (do this once)
 The Kaggle notebook's cells live on Kaggle, not in git, so every new job meant
-editing the notebook. `notebooks/kaggle_minijev_job.ipynb` is a thin runner:
+editing the notebook. `notebooks/kaggle_pointwise_job.ipynb` is a thin runner:
 clone `jev`, install, find the adapter, run `python -m scripts.kaggle_job`.
 The job is chosen in the repo (`scripts/kaggle_job.py`), so future runs need
 only **Save & Run All**.
@@ -55,7 +55,7 @@ only **Save & Run All**.
 > processes ~11 (message) + ~400 (77 option spans) ≈ 410 positions per message,
 > against generation's ~470 prefill + ~10 sequential decode steps. Its speed-up
 > over generation comes from deleting the decode steps, not from fewer
-> positions, so expect ~1.5–3×, not 5×. The Phase 2 gate in `minijev-plan.md`
+> positions, so expect ~1.5–3×, not 5×. The Phase 2 gate in `pointwise-plan.md`
 > is rewritten accordingly: per-question cost and questions-per-state scaling,
 > not "5× faster than generating one Banking77 label".
 - **Not compute-bound** (low efficiency, one kernel dominating): fix that
@@ -101,7 +101,7 @@ Caveat: `key_averages()` lists both aten ops and the CUDA kernels under them, so
 message because exact scoring has to push every label's tokens through the model. The
 remaining memory-traffic overhead is worth at most ~2–3×, which still misses 5×.
 - Phase 0 closes on exactness (99.4% agreement) + calibration (ECE 0.021). Speed gate re-derived
-  in Phase 2 (`minijev-plan.md`).
+  in Phase 2 (`pointwise-plan.md`).
 - Phase 0d (trie) is **skipped**: ~117 ms best case, still 0.7× generation. Not worth the GPU time.
 - Carry forward: evaluate with LoRA **merged** (17% free), and on transformers ≥ 4.51
   check whether `repeat_kv` still materialises (newer SDPA handles GQA natively).

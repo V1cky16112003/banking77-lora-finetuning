@@ -1,5 +1,5 @@
 """Phase 0c: where does the logit read-out spend its time?
-(docs/designs/minijev-phase0c-plan.md)
+(docs/designs/pointwise-phase0c-plan.md)
 
 Measures the GPU's achieved fp16 matmul throughput, per-stage read-out timings
 at several batch sizes, token positions per message, efficiency against the

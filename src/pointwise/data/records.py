@@ -18,7 +18,7 @@ from __future__ import annotations
 import random
 from collections import Counter
 
-from src.minijev.schema import SystemOneRequest, question_options
+from src.pointwise.schema import SystemOneRequest, question_options
 
 
 def one_hot(n: int, index: int) -> list[float]:

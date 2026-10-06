@@ -1,4 +1,4 @@
-"""MiniJev Phase 4: RLCD-lite training (docs/designs/minijev-phase4-plan.md).
+"""Pointwise Phase 4: RLCD-lite training (docs/designs/pointwise-phase4-plan.md).
 
 LoRA (r=16, attention + MLP) on a frozen Qwen3 base, plus the fp32 pointer
 head, trained with the log score (soft cross-entropy) against each question's
@@ -22,7 +22,7 @@ At the end, rank 0 scores dev and held-out sets, fits a temperature on dev, and
 writes metrics.json and the held-out predictions.
 
 Usage:
-    torchrun --nproc_per_node 2 -m src.minijev.train --data-dir data/minijev --output-dir out
+    torchrun --nproc_per_node 2 -m src.pointwise.train --data-dir data/pointwise --output-dir out
 """
 from __future__ import annotations
 
@@ -39,10 +39,10 @@ from pathlib import Path
 import torch
 import torch.distributed as dist
 
-from src.minijev import metrics as M
-from src.minijev.encoding import EncodedRequest, encode_request
-from src.minijev.model import DecisionModel
-from src.minijev.schema import SystemOneRequest
+from src.pointwise import metrics as M
+from src.pointwise.encoding import EncodedRequest, encode_request
+from src.pointwise.model import DecisionModel
+from src.pointwise.schema import SystemOneRequest
 
 MODEL_NAME = "Qwen/Qwen3-1.7B-Base"
 LORA_TARGETS = ["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"]
@@ -243,7 +243,10 @@ def find_checkpoint(*roots: Path | None) -> Path | None:
     for root in roots:
         if root is None or not root.exists():
             continue
-        for path in root.glob("**/minijev-train/checkpoint/state.pt"):
+        # minijev-train: Phase 4 session 1 ran before the rename to Pointwise.
+        paths = [*root.glob("**/pointwise-train/checkpoint/state.pt"),
+                 *root.glob("**/minijev-train/checkpoint/state.pt")]
+        for path in paths:
             step = torch.load(path, map_location="cpu", weights_only=False)["step"]
             if step > best_step:
                 best, best_step = path, step
@@ -345,7 +348,7 @@ def main(argv=None) -> None:
         torch.cuda.set_device(device)
     say = (lambda *a: print(*a, flush=True)) if rank == 0 else (lambda *a: None)
 
-    out_dir = args.output_dir / "minijev-train"
+    out_dir = args.output_dir / "pointwise-train"
     out_dir.mkdir(parents=True, exist_ok=True)
     model = build_model(args, device)
     tokenizer = model.tokenizer

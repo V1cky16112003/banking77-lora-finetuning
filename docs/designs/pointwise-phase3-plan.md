@@ -1,6 +1,6 @@
-# MiniJev Phase 3: Training data (execution plan)
+# Pointwise Phase 3: Training data (execution plan)
 
-Parent: `minijev-plan.md` Phase 3. Date: 2026-10-06.
+Parent: `pointwise-plan.md` Phase 3. Date: 2026-10-06.
 
 ## Goal
 Training data shaped like `/v1/systemone` requests, with a target probability
@@ -27,13 +27,13 @@ against Kev's training data (`jaredpalmer/kev`, `kev/data.py`):
 ## Files
 | File | What | Imports |
 |---|---|---|
-| `src/minijev/data/records.py` | record format, choice/noul/score builders, validation, label report | pydantic only |
-| `src/minijev/data/policies.py` | 3 domains (orders, loans, tickets) × 6 question templates | pure Python |
-| `src/minijev/data/sources.py` | converters (rows in, records out), text cleaning, pinned Hub revisions | `datasets` only in `load_rows` |
-| `src/minijev/data/build.py` | CLI: build, leakage checks, report, gate | — |
+| `src/pointwise/data/records.py` | record format, choice/noul/score builders, validation, label report | pydantic only |
+| `src/pointwise/data/policies.py` | 3 domains (orders, loans, tickets) × 6 question templates | pure Python |
+| `src/pointwise/data/sources.py` | converters (rows in, records out), text cleaning, pinned Hub revisions | `datasets` only in `load_rows` |
+| `src/pointwise/data/build.py` | CLI: build, leakage checks, report, gate | — |
 
 Record: `{"id", "source", "split", "request": <systemone request>, "targets": {key: [p per option]}}`.
-Output `data/minijev/` (gitignored; rebuilt in ~1 minute from pinned revisions).
+Output `data/pointwise/` (gitignored; rebuilt in ~1 minute from pinned revisions).
 
 ## Design choices
 - **Options are always shuffled** for choice questions; Score levels never are,
@@ -53,7 +53,7 @@ Output `data/minijev/` (gitignored; rebuilt in ~1 minute from pinned revisions).
   (3,080), the same set as the fine-tuned classifier.
 
 ## Verification
-- `tests/test_minijev_data.py`, 26 tests, no network (CI-safe):
+- `tests/test_pointwise_data.py`, 26 tests, no network (CI-safe):
   builders, validation, gold-position spread, policy rule semantics (band labels
   re-derived from the level text; decision rules in order; ties), converters on
   hand-made rows, CLINC exclusion, and a full `build()` on a fake loader with a

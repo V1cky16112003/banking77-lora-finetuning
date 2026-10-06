@@ -1,4 +1,4 @@
-# MiniJev — Architecture
+# Pointwise — Architecture
 
 A small, open replication of the *System One model* idea behind TypeSafe's Jev:
 **unstructured state in, typed calibrated decisions out, in one forward pass.**
@@ -15,7 +15,7 @@ design. Date: 2026-10-03, revised 2026-10-04 after comparison with Kev (§8).
 
 ## 1. Evidence → design decision
 
-| Public clue | Source | Decision in MiniJev |
+| Public clue | Source | Decision in Pointwise |
 |---|---|---|
 | "I wouldn't pre-train with $1B"; "Frankensteining" | Interview ~1:49 † | Start from an open decoder (Qwen family); no pre-training |
 | Model can be coaxed into saying it is "Qwen" | Interview ~1:47 † | Qwen base is the most plausible backbone (Kev uses Qwen3 / Qwen3.5 bases too) |
@@ -37,11 +37,11 @@ study notes. Re-check them against the sources before relying on them.
 
 Match TypeSafe's public `POST /v1/systemone` shape (as reproduced by Kev's
 `kev/api.py` against TypeSafe's reference `system-one-adapter` 0.2.1), not a
-shape of our own, so a MiniJev server is a drop-in for a Jev client.
+shape of our own, so a Pointwise server is a drop-in for a Jev client.
 
 ```json
 request:  {"state": str | object | array,
-           "model": "minijev-latest",
+           "model": "pointwise-latest",
            "questions": {
              "<id>": {"type": "choice", "instructions": ..., "criteria": {"<name>": "<description or null>", ...}},
              "<id>": {"type": "noul",   "instructions": ..., "criteria": {"true": ..., "false": ...}  /* optional */},
@@ -148,7 +148,7 @@ sets work by construction, and 255 is only an API cap.
 
 ### 3.4 Optional rationale (off by default)
 OpenJev † reports that with a proper-score objective the model collapses to *no
-rationale* on non-reasoning tasks ("System-One collapse"). MiniJev v1 has no
+rationale* on non-reasoning tasks ("System-One collapse"). Pointwise v1 has no
 rationale. A "ReasoningJev" mode (short rationale before `<decide>`) is future
 work.
 
@@ -186,7 +186,7 @@ Store T with the checkpoint and apply it only at inference.
 
 Records: `{request, targets}`: a `/v1/systemone` request plus a probability
 vector per question over its options (one-hot from labels; soft where a source
-has annotator distributions). Full list and caps: `minijev-phase3-plan.md`.
+has annotator distributions). Full list and caps: `pointwise-phase3-plan.md`.
 
 Sources:
 1. **Fixed-label datasets** → Choice/Noul/Score over random option subsets:
@@ -229,14 +229,14 @@ on the same held-out sets (open weights, same API).
 
 ## 7. Known limits
 - Real Jev is likely much larger and trained far longer; expect a capability
-  gap. Kev-0.8B is "noticeably weaker out of domain"; a 1.7B MiniJev should
+  gap. Kev-0.8B is "noticeably weaker out of domain"; a 1.7B Pointwise should
   be expected to sit between Kev-0.8B and Kev-4B, not near Jev.
 - Pointer-head read-out removes the slot-binding risk, but option-order bias
   remains and must be measured (§3.3).
 - Read-out speed: the options are input tokens after the per-message state,
   so they cannot be prefix-cached across states. A Banking77 question with 77
   options costs ~400 input positions; the gain over generation is the removed
-  decode loop, not fewer positions (see `minijev-phase0c-plan.md`).
+  decode loop, not fewer positions (see `pointwise-phase0c-plan.md`).
 - Teacher soft labels import teacher biases (TypeSafe notes the same).
 - English only; text only.
 
@@ -247,7 +247,7 @@ huggingface.co/spaces/jaredpalmer/kev, weights `jaredpalmer/kev-{0.8b,4b,9b,27b}
 is an open Jev-like family that reached a similar design independently.
 Compared on 2026-10-04 from its `kev/model.py`, `kev/api.py`, `kev/train.py`.
 
-| | MiniJev (this doc) | Kev |
+| | Pointwise (this doc) | Kev |
 |---|---|---|
 | Backbone | Qwen3-1.7B Base, LoRA | Qwen3.5 Base (earlier: Qwen3), LoRA r=16 incl. DeltaNet projections; 27B full fine-tune |
 | Parallel questions | Block mask, positions restart after state | Same; row form on hybrid backbones |

@@ -11,7 +11,7 @@ from __future__ import annotations
 import html
 import random
 
-from src.minijev.data import records as R
+from src.pointwise.data import records as R
 
 
 def _state(rng: random.Random, text: str, json_key: str, json_rate: float = 0.25):

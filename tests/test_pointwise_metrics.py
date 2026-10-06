@@ -4,7 +4,7 @@ import random
 
 import pytest
 
-from src.minijev import metrics as M
+from src.pointwise import metrics as M
 
 
 def test_softmax_and_temperature():

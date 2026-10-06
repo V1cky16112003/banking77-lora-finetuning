@@ -1,4 +1,4 @@
-"""Decision metrics and temperature fitting (MiniJev Phase 4). Pure Python on
+"""Decision metrics and temperature fitting (Pointwise Phase 4). Pure Python on
 plain lists of logits, so CI tests it without torch.
 
 Every question is scored against its target distribution q:

@@ -1,5 +1,5 @@
 """Phase 0 gate check: logit read-out vs constrained generation on the same
-split, same model, same prompt (docs/designs/minijev-phase0-plan.md).
+split, same model, same prompt (docs/designs/pointwise-phase0-plan.md).
 
 Reports accuracy, macro-F1, calibration (ECE, Brier, AURC, Cov@5%) and
 per-example latency. Generation yields no probabilities, so it only gets the

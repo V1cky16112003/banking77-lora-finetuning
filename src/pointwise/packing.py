@@ -1,4 +1,4 @@
-"""Shared-prefix parallel questions (MiniJev Phase 1, docs/designs/minijev-plan.md).
+"""Shared-prefix parallel questions (Pointwise Phase 1, docs/designs/pointwise-plan.md).
 
 One state, k questions. Each question must see exactly what it would see in
 a separate "state + this question" call, and nothing of its siblings. Three

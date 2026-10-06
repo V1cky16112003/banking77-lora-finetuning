@@ -1,9 +1,9 @@
-"""Token layout of a decision request (MiniJev Phase 2).
+"""Token layout of a decision request (Pointwise Phase 2).
 
     state:      <state> state tokens
     question k: <q> instruction <opt> option 1 </opt> ... <opt> option K </opt> <decide>
 
-The read-out (src/minijev/model.py) compares the hidden state at <decide> with
+The read-out (src/pointwise/model.py) compares the hidden state at <decide> with
 the hidden state at each option's </opt>, the last token of that option, which
 has read the whole option text.
 
@@ -20,7 +20,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
-from src.minijev.schema import SystemOneRequest, question_options, render
+from src.pointwise.schema import SystemOneRequest, question_options, render
 
 STATE, QUESTION, OPTION_OPEN, OPTION_CLOSE, DECIDE = (
     "<|fim_prefix|>",

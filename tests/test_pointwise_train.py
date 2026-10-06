@@ -1,4 +1,4 @@
-"""MiniJev Phase 4 training, end to end on CPU with a tiny random Qwen3.
+"""Pointwise Phase 4 training, end to end on CPU with a tiny random Qwen3.
 
 Covers the batched forward, batching and resume bookkeeping, a full train()
 run that checkpoints and evaluates, resuming from that checkpoint, loss going
@@ -18,12 +18,12 @@ torch = pytest.importorskip("torch")
 transformers = pytest.importorskip("transformers")
 pytest.importorskip("peft")
 
-from src.minijev import train as T  # noqa: E402
-from src.minijev.data import policies as P  # noqa: E402
-from src.minijev.data import sources as S  # noqa: E402
-from src.minijev.encoding import encode_request  # noqa: E402
-from src.minijev.model import DecisionModel  # noqa: E402
-from src.minijev.schema import SystemOneRequest  # noqa: E402
+from src.pointwise import train as T  # noqa: E402
+from src.pointwise.data import policies as P  # noqa: E402
+from src.pointwise.data import sources as S  # noqa: E402
+from src.pointwise.encoding import encode_request  # noqa: E402
+from src.pointwise.model import DecisionModel  # noqa: E402
+from src.pointwise.schema import SystemOneRequest  # noqa: E402
 
 REPO = Path(__file__).resolve().parents[1]
 
@@ -124,7 +124,7 @@ def test_lr_schedule():
 
 def test_train_checkpoints_evaluates_and_resumes(tmp_path, data_dir, tiny_model_dir, capsys):
     T.main(_args(data_dir, tiny_model_dir, tmp_path, "--max-steps", "6"))
-    out = tmp_path / "minijev-train"
+    out = tmp_path / "pointwise-train"
     state = torch.load(out / "checkpoint" / "state.pt", weights_only=False)
     assert state["step"] == 6
     result = json.loads((out / "metrics.json").read_text())
@@ -159,9 +159,9 @@ def test_loss_goes_down_on_a_small_set(tmp_path, data_dir, tiny_model_dir, capsy
 def test_two_process_ddp_on_cpu(tmp_path, data_dir, tiny_model_dir):
     env = {**os.environ, "OMP_NUM_THREADS": "1"}
     cmd = [sys.executable, "-m", "torch.distributed.run", "--nproc_per_node", "2", "--master_port", "29517",
-           "-m", "src.minijev.train", *_args(data_dir, tiny_model_dir, tmp_path, "--max-steps", "4")]
+           "-m", "src.pointwise.train", *_args(data_dir, tiny_model_dir, tmp_path, "--max-steps", "4")]
     run = subprocess.run(cmd, cwd=REPO, env=env, capture_output=True, text=True, timeout=600)
     assert run.returncode == 0, run.stderr[-3000:]
     assert "world 2" in run.stdout
-    assert torch.load(tmp_path / "minijev-train" / "checkpoint" / "state.pt", weights_only=False)["step"] == 4
-    assert (tmp_path / "minijev-train" / "metrics.json").exists()
+    assert torch.load(tmp_path / "pointwise-train" / "checkpoint" / "state.pt", weights_only=False)["step"] == 4
+    assert (tmp_path / "pointwise-train" / "metrics.json").exists()

@@ -1,8 +1,8 @@
-"""The /v1/systemone request and response contract (MiniJev Phase 2).
+"""The /v1/systemone request and response contract (Pointwise Phase 2).
 
 Matches TypeSafe's public System One API, as reproduced by Kev's kev/api.py
 against TypeSafe's reference adapter (system-one-adapter 0.2.1), so a Jev or
-Kev client can call a MiniJev server unchanged. Pure Python + pydantic, no
+Kev client can call a Pointwise server unchanged. Pure Python + pydantic, no
 torch, so CI can test it.
 
 Every question type becomes one primitive, "pick one of these options":
@@ -49,7 +49,7 @@ Question = Union[Noul, Choice, Score]
 
 class SystemOneRequest(BaseModel):
     state: JSONContent
-    model: str = "minijev-latest"
+    model: str = "pointwise-latest"
     questions: dict[str, Question] = Field(min_length=1)
 
 

@@ -147,7 +147,7 @@ def test_format_label_for_display_single_word():
     assert format_label_for_display("card_lost") == "Card Lost"
 
 
-# --- calibration metrics (MiniJev Phase 0) ---
+# --- calibration metrics (Pointwise Phase 0) ---
 
 
 def test_softmax_scores_sums_to_one_and_survives_large_magnitudes():

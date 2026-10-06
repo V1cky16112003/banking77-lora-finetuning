@@ -1,8 +1,8 @@
-"""Phase 1 benchmark: one state, k questions (docs/designs/minijev-plan.md).
+"""Phase 1 benchmark: one state, k questions (docs/designs/pointwise-plan.md).
 
 For k = 1, 4, 16, 64 questions on one state, times:
 - separate:      k plain calls of "state + question" (the baseline);
-- packed:        one pass, block mask (src/minijev/packing.py);
+- packed:        one pass, block mask (src/pointwise/packing.py);
 - branches:      prefill the state, then one pass over all questions;
 - branches_warm: the same with the state already cached (a serving cache hit);
 - rows:          prefill the state, then each question as its own row.
@@ -29,7 +29,7 @@ from transformers import AutoModel, AutoTokenizer
 
 from src.config import load_task_config
 from src.data import load_banking77_splits
-from src.minijev.packing import (
+from src.pointwise.packing import (
     branch_features,
     pack,
     packed_features,

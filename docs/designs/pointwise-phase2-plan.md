@@ -1,6 +1,6 @@
-# MiniJev Phase 2: Pointer head and the `/v1/systemone` API (execution plan)
+# Pointwise Phase 2: Pointer head and the `/v1/systemone` API (execution plan)
 
-Parent: `minijev-plan.md` Phase 2. Date: 2026-10-05.
+Parent: `pointwise-plan.md` Phase 2. Date: 2026-10-05.
 
 ## Goal
 A typed decision API on the Phase 1 packing: a TypeSafe-compatible request in,
@@ -11,9 +11,9 @@ stays untrained until Phase 4.
 ## Files (pure logic separate from the ML code, as in Phase 0)
 | File | What | Imports torch? |
 |---|---|---|
-| `src/minijev/schema.py` | pydantic `Choice` / `Noul` / `Score` / `SystemOneRequest`; `render`; TypeSafe's confidence formulas; 4-decimal rounding; `to_answers` | No (CI-tested) |
-| `src/minijev/encoding.py` | token layout `<state> … / <q> instr <opt> o </opt> … <decide>` on reused Qwen special tokens; unforgeable boundaries; 32k state limit | No (tokenizer only) |
-| `src/minijev/model.py` | `PointerHead` (fp32, `d_p = 256`, eval-only temperature); `DecisionModel.decide()` on a bare backbone | Yes |
+| `src/pointwise/schema.py` | pydantic `Choice` / `Noul` / `Score` / `SystemOneRequest`; `render`; TypeSafe's confidence formulas; 4-decimal rounding; `to_answers` | No (CI-tested) |
+| `src/pointwise/encoding.py` | token layout `<state> … / <q> instr <opt> o </opt> … <decide>` on reused Qwen special tokens; unforgeable boundaries; 32k state limit | No (tokenizer only) |
+| `src/pointwise/model.py` | `PointerHead` (fp32, `d_p = 256`, eval-only temperature); `DecisionModel.decide()` on a bare backbone | Yes |
 | `scripts/bench_decide.py` | T4 benchmark, the Kaggle job | Yes |
 
 ## Decisions
@@ -33,11 +33,11 @@ stays untrained until Phase 4.
   and a fitted T stays meaningful; dividing by T never changes the argmax.
 
 ## Local verification
-- `tests/test_minijev_schema.py` (15 tests, no torch): validation limits (1..255
+- `tests/test_pointwise_schema.py` (15 tests, no torch): validation limits (1..255
   options, unknown types, empty requests), rendering, both confidence formulas at
   their fixed points, rounding tolerance at 255 options, response shapes.
   Also run in a CI-like Python 3.11 env with `requirements-core.txt` + pydantic 2.9.2.
-- `tests/test_minijev_model.py` (8 tests, tiny random Qwen3 + cached Qwen tokenizer):
+- `tests/test_pointwise_model.py` (8 tests, tiny random Qwen3 + cached Qwen tokenizer):
   encoding layout; a state/instruction/option containing delimiter strings can't
   add or close options (the test fails if splitting is removed); state limit;
   `decide()` end to end, well typed for choice / noul / score; packed questions ==

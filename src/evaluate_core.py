@@ -123,7 +123,7 @@ def format_label_for_display(label: str) -> str:
     return label.replace("_", " ").title()
 
 
-# --- Calibration metrics (MiniJev Phase 0, docs/designs/minijev-phase0-plan.md) ---
+# --- Calibration metrics (Pointwise Phase 0, docs/designs/pointwise-phase0-plan.md) ---
 # Pure-Python on purpose: these take plain lists of probabilities produced by
 # src/readout.py, so CI can test them without torch.
 

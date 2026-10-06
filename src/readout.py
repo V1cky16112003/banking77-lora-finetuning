@@ -1,6 +1,6 @@
 """Logit read-out: decide among the configured labels without generate().
 
-MiniJev Phase 0 (docs/designs/minijev-phase0-plan.md). For each label y we
+Pointwise Phase 0 (docs/designs/pointwise-phase0-plan.md). For each label y we
 compute the exact sequence log-likelihood
 
     s(y) = sum_t log p(y_t | prompt, y_<t)     (label tokens + EOS)
@@ -8,7 +8,7 @@ compute the exact sequence log-likelihood
 and renormalise over the label set, giving a full probability distribution
 instead of one greedy string.
 
-Phase 0b (docs/designs/minijev-phase0b-plan.md) makes it fast without changing
+Phase 0b (docs/designs/pointwise-phase0b-plan.md) makes it fast without changing
 the scores:
 - The prompt's static prefix (instructions + the 77-label list) is prefilled
   once per run and its KV cache reused for every message. This is Jev's

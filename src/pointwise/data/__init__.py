@@ -1,4 +1,4 @@
-"""MiniJev training data (Phase 3, docs/designs/minijev-phase3-plan.md).
+"""Pointwise training data (Phase 3, docs/designs/pointwise-phase3-plan.md).
 
 records.py   question builders, augmentation, label report (pure Python)
 policies.py  rule-based policy records with code-computed labels (pure Python)

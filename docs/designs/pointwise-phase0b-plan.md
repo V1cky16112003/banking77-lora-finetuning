@@ -1,6 +1,6 @@
-# MiniJev Phase 0b: Fast read-out (execution plan)
+# Pointwise Phase 0b: Fast read-out (execution plan)
 
-Parent: `minijev-phase0-plan.md` (Results section). Date: 2026-10-04.
+Parent: `pointwise-phase0-plan.md` (Results section). Date: 2026-10-04.
 
 ## Problem
 Phase 0 read-out is exact (99.4% agreement with generation) and well calibrated
@@ -53,7 +53,7 @@ row chunks, gathering only the label tokens.
 | `src/readout.py` | replace `score_labels` with `LabelScorer` (prefix cache + `score(messages)`); `split_prompt`; `readout_dataset` takes `batch_size` |
 | `scripts/compare_readout.py` | `--batch-size` flag (default 4) |
 | `tests/test_readout.py` | batched scores == naive per-label scores for messages of different lengths (padding path); prefix-split invariant on real Banking77 messages |
-| `notebooks/kaggle_minijev_phase0.ipynb` | unchanged (picks up new code from the branch) |
+| `notebooks/kaggle_pointwise_phase0.ipynb` | unchanged (picks up new code from the branch) |
 
 ## Local verification (before any GPU time)
 1. Equivalence: `LabelScorer.score` == naive full-sequence scoring, atol 1e-4,

@@ -1,4 +1,4 @@
-"""MiniJev Phase 3 data: builders, policy rules, converters, and a full build
+"""Pointwise Phase 3 data: builders, policy rules, converters, and a full build
 with a fake dataset loader. Pure Python (pydantic + pyyaml), so it runs in CI
 with no network."""
 import random
@@ -6,10 +6,10 @@ import re
 
 import pytest
 
-from src.minijev.data import build as B
-from src.minijev.data import policies as P
-from src.minijev.data import records as R
-from src.minijev.data import sources as S
+from src.pointwise.data import build as B
+from src.pointwise.data import policies as P
+from src.pointwise.data import records as R
+from src.pointwise.data import sources as S
 
 
 def _gold(target):

@@ -1,5 +1,5 @@
 """Packed, branch and row forms must give the same features as running each
-question separately on "state + question" (MiniJev Phase 1 gate).
+question separately on "state + question" (Pointwise Phase 1 gate).
 
 Tiny randomly initialised Qwen3 / Qwen2 models in fp32 with random token ids,
 so nothing is downloaded. Skipped where torch is absent (CI installs
@@ -10,7 +10,7 @@ import pytest
 torch = pytest.importorskip("torch")
 transformers = pytest.importorskip("transformers")
 
-from src.minijev.packing import (  # noqa: E402
+from src.pointwise.packing import (  # noqa: E402
     block_mask,
     branch_features,
     pack,

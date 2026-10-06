@@ -1,6 +1,6 @@
-# MiniJev — Implementation Plan
+# Pointwise — Implementation Plan
 
-Companion to `minijev-architecture.md`. Hardware: Kaggle T4 (fp16, ~30 GPU-h/week).
+Companion to `pointwise-architecture.md`. Hardware: Kaggle T4 (fp16, ~30 GPU-h/week).
 Each phase ends with a measurable gate; don't start the next phase until it passes.
 Revised 2026-10-04 after comparison with Kev (architecture §8): pointer-head
 read-out instead of slot tokens, TypeSafe's real API contract, re-derived
@@ -11,13 +11,13 @@ Goal: prove "decide without generating" on the existing pipeline.
 - `src/readout.py`: score each of the 77 labels by its **full-sequence**
   log-likelihood (label tokens + EOS), renormalised over the label set.
   First-token scoring, the original idea, can't tell apart labels that share
-  a first token (details in `minijev-phase0-plan.md`).
+  a first token (details in `pointwise-phase0-plan.md`).
 - Reuse the existing LoRA checkpoint; compare against `generate()` + `parse_label`.
 - Add `ece`, `brier`, `aurc`, `coverage_at` to `src/evaluate_core.py` (+ tests).
 - **Gate:** read-out accuracy within 1 pt of generation (PASS: 0.918 vs 0.914);
   ECE reported (PASS: 0.021). Speed (≥5× faster) FAILED at 0.50×. Phase 0c
   profiles why. The speed gate is re-derived in Phase 2, because a read-out
-  still has to put all 77 options in the input (`minijev-phase0c-plan.md`).
+  still has to put all 77 options in the input (`pointwise-phase0c-plan.md`).
 
 Learn: why reading logits gives a probability distribution for free.
 
@@ -25,7 +25,7 @@ Learn: why reading logits gives a probability distribution for free.
 Goal: one state, many questions, one prefill.
 - Bump `transformers` on the `jev` branch to a version with Qwen3 (≥ 4.51);
   keep `main`'s pin. Re-run the Phase 0 tests on the new version.
-- `src/minijev/packing.py`: build packed sequence + block attention mask +
+- `src/pointwise/packing.py`: build packed sequence + block attention mask +
   restarted position ids (state, then k question branches). Additive mask with
   `finfo.min`, padded query rows keep their diagonal (as Kev's `branch_mask_batch`).
 - Row form: each question as one causal row continuing a cached state;
@@ -40,12 +40,12 @@ Learn: KV caching, attention masks, why context budget = state + longest questio
 ## Phase 2 — Pointer head & the `/v1/systemone` API (≈3 days)
 - Delimiters: reuse existing Qwen special tokens for state / question /
   option open / option close / decide; no new embedding rows.
-- `src/minijev/schema.py`: pydantic `Choice`, `Noul`, `Score`,
+- `src/pointwise/schema.py`: pydantic `Choice`, `Noul`, `Score`,
   `SystemOneRequest` matching TypeSafe's `/v1/systemone` (questions keyed by
   id; choice criteria `{name: description}`; score criteria = ordered list);
   `render()` for object/array states; TypeSafe's confidence formulas; 4-decimal
   rounding (architecture §2).
-- `src/minijev/model.py`: `PointerHead` (`W_q`, `W_k`, `d_p = 256`, fp32),
+- `src/pointwise/model.py`: `PointerHead` (`W_q`, `W_k`, `d_p = 256`, fp32),
   reading `<decide>` against each option's closing-token hidden state; masked
   softmax per question; temperature applied only in eval mode.
 - Escape `<|…|>` in all caller text before tokenising.
@@ -63,8 +63,8 @@ Learn: KV caching, attention masks, why context budget = state + longest questio
 
 ## Phase 3 — Training data (≈4 days)
 Revised 2026-10-06 after checking the source list against Kev's training data
-(details and reasoning in `minijev-phase3-plan.md`).
-- `src/minijev/data/`: converters → `{request, targets}` JSONL, where `request`
+(details and reasoning in `pointwise-phase3-plan.md`).
+- `src/pointwise/data/`: converters → `{request, targets}` JSONL, where `request`
   is a `/v1/systemone` request and `targets` a probability vector per question.
 - **Train sources:** MNLI, BoolQ, AG News (capped), SST-5, Yelp (capped),
   CLINC150 minus its banking and credit-card domains and any intent named like a
@@ -88,8 +88,8 @@ Revised 2026-10-06 after checking the source list against Kev's training data
   intent, no train/eval text overlap (tests assert the checks).
 
 ## Phase 4 — RLCD-lite training (2 Kaggle sessions)
-Revised 2026-10-06 (details: `minijev-phase4-plan.md`).
-- `src/minijev/train.py`: LoRA (r=16, attention + MLP) on Qwen3-1.7B Base,
+Revised 2026-10-06 (details: `pointwise-phase4-plan.md`).
+- `src/pointwise/train.py`: LoRA (r=16, attention + MLP) on Qwen3-1.7B Base,
   fp16 backbone with fp32 LoRA, head and loss; loss = log score (soft CE),
   optional Brier term; DDP over both T4s; gradient checkpointing.
 - Kaggle-proof: stops itself before the 12h limit (a timed-out session keeps no
@@ -113,9 +113,9 @@ true distribution, and why one-hot training still ends up overconfident.
   and vs Kev-0.8B / Kev-4B (open weights, same API).
 - Reliability diagrams (raw and after T), risk–coverage curves, Cov@5%,
   option-shuffle flip rate.
-- Latency table on T4: MiniJev vs generate-and-parse, k questions per state.
-- Write `reports/minijev-results.md`.
-- **Gate:** report shows where MiniJev wins and loses, with bootstrap CIs.
+- Latency table on T4: Pointwise vs generate-and-parse, k questions per state.
+- Write `reports/pointwise-results.md`.
+- **Gate:** report shows where Pointwise wins and loses, with bootstrap CIs.
 
 ## Phase 6 — Serving (≈2 days)
 - Extend `src/serve.py` with `POST /v1/systemone`, request/response exactly as
@@ -139,7 +139,7 @@ true distribution, and why one-hot training still ends up overconfident.
 | T4 fp16 overflow | Qwen3 (not Gemma); head and loss in fp32; grad clipping |
 | Kaggle quota | Small run matrix; resume checkpoints; short eval sets during dev |
 | Teacher cost | Teacher set is optional; real datasets alone suffice for v1 |
-| Overclaiming vs Jev | Report results as "MiniJev", never as Jev parity; compare against Kev, which has open weights |
+| Overclaiming vs Jev | Report results as "Pointwise", never as Jev parity; compare against Kev, which has open weights |
 
 ## Out of scope
 Pre-training, multimodal input, multi-label outputs, matching Jev's benchmark claims.
