@@ -117,6 +117,12 @@ true distribution, and why one-hot training still ends up overconfident.
   prompts and candidates as Pointwise, so the gap is what fine-tuning adds.
   Report accuracy, raw ECE and ECE after its own fitted T per source, with
   paired bootstrap CIs on the accuracy gap.
+- Task-specific generative fine-tune: the Phase 0 Banking77 LoRA
+  (Qwen2.5-1.5B-Instruct) scored by the same logit read-out, on Banking77 and
+  on every other eval source. In-domain specialist vs Pointwise zero-shot on
+  Banking77; out of domain, it shows what a single-task fine-tune transfers.
+  Its backbone differs, so also run the no-training baseline on
+  Qwen2.5-1.5B-Instruct and compare each fine-tune's gain over its own base.
 - Reliability diagrams (raw and after T), risk–coverage curves, Cov@5%,
   option-shuffle flip rate.
 - Latency table on T4: Pointwise vs generate-and-parse, k questions per state.
