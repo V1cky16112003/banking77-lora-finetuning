@@ -72,3 +72,14 @@ Session 2: **Add Input → Your Work → this notebook's session-1 version**, th
 - [x] Training code, tests, Kaggle job.
 - [ ] Session 1.
 - [ ] Session 2.
+
+## Run log
+- **2026-10-06 05:25 UTC, session 1, attempt 1: failed in 4 minutes, ~4.5 GPU-min used.**
+  The data build passed on Kaggle; training died while applying LoRA. Kaggle's image
+  ships torchao 0.10.0, and peft 0.21.2 raises on any torchao below 0.16 (an absent
+  torchao is fine; it wasn't installed locally, so the tests passed). The OOM retry
+  then repeated the same error. Fix: the job uninstalls torchao (MiniJev doesn't
+  quantise) and runs a LoRA preflight on a tiny model first, so environment errors
+  stop in seconds with a clear message. Reproduced locally with a stub torchao 0.10.0:
+  same error with it, preflight passes without.
+

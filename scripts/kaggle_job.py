@@ -7,6 +7,8 @@ below, push, then Save & Run All on Kaggle.
 
 Current job: Phase 4 training (docs/designs/minijev-phase4-plan.md).
 1. Build the training data from pinned sources into /tmp (not saved as output).
+   Remove Kaggle's preinstalled torchao and check that LoRA can be applied
+   (preflight), so an environment problem fails in seconds, not mid-launch.
 2. Train on every visible GPU with torchrun. Resumes from a previous session's
    checkpoint if that notebook version is attached as input.
 3. If training fails in its first 20 minutes (almost always out of memory on the
@@ -40,6 +42,18 @@ def gpu_count() -> int:
         return 1
 
 
+PREFLIGHT = """
+import torch, transformers
+from peft import LoraConfig, get_peft_model
+from src.minijev.train import LORA_TARGETS
+config = transformers.Qwen3Config(vocab_size=64, hidden_size=32, intermediate_size=64, num_hidden_layers=1,
+                                  num_attention_heads=2, num_key_value_heads=1, head_dim=16)
+model = get_peft_model(transformers.Qwen3Model(config), LoraConfig(task_type="FEATURE_EXTRACTION", r=4, target_modules=LORA_TARGETS))
+model(input_ids=torch.tensor([[1, 2, 3]]))
+print("preflight ok: LoRA applies and runs", flush=True)
+"""
+
+
 def run(command: list[str], env: dict) -> int:
     print("Running:", " ".join(command), flush=True)
     return subprocess.run(command, env=env).returncode
@@ -56,6 +70,12 @@ def main() -> None:
     env["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
     if run([sys.executable, "-m", "src.minijev.data.build", "--out", DATA_DIR], env):
         sys.exit("data build failed")
+    # Kaggle's image ships torchao 0.10; peft 0.21 raises on any torchao below 0.16
+    # while applying LoRA (2026-10-06 session 1 failed this way). MiniJev doesn't
+    # quantise, and peft treats an absent torchao as fine.
+    run([sys.executable, "-m", "pip", "uninstall", "-y", "-q", "torchao"], env)
+    if run([sys.executable, "-c", PREFLIGHT], env):
+        sys.exit("preflight failed: LoRA can't be applied in this environment")
 
     gpus = gpu_count()
     budget = TOKEN_BUDGET
