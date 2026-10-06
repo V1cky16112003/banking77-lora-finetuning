@@ -111,11 +111,18 @@ true distribution, and why one-hot training still ends up overconfident.
 ## Phase 5 — Evaluation report (≈2 days)
 - Zero-shot Banking77 (never trained on) vs the repo's fine-tuned classifier
   and vs Kev-0.8B / Kev-4B (open weights, same API).
+- No-training baseline (SemIf-style): Qwen3-1.7B Base with no LoRA and no
+  pointer head, scoring each option by full-sequence log-likelihood as in
+  `src/readout.py`, renormalised over the candidate set. Same eval sets,
+  prompts and candidates as Pointwise, so the gap is what fine-tuning adds.
+  Report accuracy, raw ECE and ECE after its own fitted T per source, with
+  paired bootstrap CIs on the accuracy gap.
 - Reliability diagrams (raw and after T), risk–coverage curves, Cov@5%,
   option-shuffle flip rate.
 - Latency table on T4: Pointwise vs generate-and-parse, k questions per state.
 - Write `reports/pointwise-results.md`.
-- **Gate:** report shows where Pointwise wins and loses, with bootstrap CIs.
+- **Gate:** report shows where Pointwise wins and loses, with bootstrap CIs,
+  including against the no-training baseline.
 
 ## Phase 6 — Serving (≈2 days)
 - Extend `src/serve.py` with `POST /v1/systemone`, request/response exactly as
