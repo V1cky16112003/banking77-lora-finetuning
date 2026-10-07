@@ -140,6 +140,26 @@ def test_train_checkpoints_evaluates_and_resumes(tmp_path, data_dir, tiny_model_
     assert torch.load(out / "checkpoint" / "state.pt", weights_only=False)["step"] == 10
 
 
+def test_epochs_stop_and_best_weights_are_evaluated(tmp_path, data_dir, tiny_model_dir, capsys):
+    """--epochs sizes the schedule and stops there; dev is checked at every
+    checkpoint (here every step) and the final evaluation uses the best weights."""
+    T.main(_args(data_dir, tiny_model_dir, tmp_path, "--epochs", "1", "--checkpoint-minutes", "0",
+                 "--eval-dev-records", "4"))
+    out = tmp_path / "pointwise-train"
+    total = int(re.search(r"LR schedule over (\d+) steps \(1.0 epochs\)", capsys.readouterr().out).group(1))
+    state = torch.load(out / "checkpoint" / "state.pt", weights_only=False)
+    assert state["step"] == total
+    curve = [json.loads(line) for line in (out / "dev_curve.jsonl").read_text().splitlines()]
+    assert [c["step"] for c in curve] == list(range(1, total + 1))
+    best = min(curve, key=lambda c: c["nll"])
+    result = json.loads((out / "metrics.json").read_text())
+    assert result["best_step"] == best["step"] == state["best"]["step"]
+    saved = torch.load(out / "best" / "state.pt", weights_only=False)
+    assert saved["step"] == best["step"] and {"lora", "head"} <= set(saved)
+    # The final dev NLL (T refitted on the same records) reproduces the best check's.
+    assert result["dev"]["scaled"]["all"]["nll"] == pytest.approx(best["nll"], abs=1e-3)
+
+
 def test_resume_search_finds_previous_session(tmp_path, data_dir, tiny_model_dir, capsys):
     previous = tmp_path / "input" / "notebook-v1"
     T.main(_args(data_dir, tiny_model_dir, previous, "--max-steps", "4"))

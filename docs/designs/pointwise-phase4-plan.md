@@ -62,16 +62,33 @@ ECE ≤ 0.05 after temperature scaling, and accuracy clearly above chance per
 source. Reported, not gated: raw ECE, fitted T (Kev's adapters land at 2.2–2.4),
 dev accuracy per training source, zero-shot Banking77 accuracy.
 
+## Run 2: shorter, best checkpoint (2026-10-07)
+Run 1 overfitted (see run log), so the resume is dropped for a fresh, shorter run:
+- `--epochs 2` (~4,900 steps, ~5.5h): the LR schedule decays to 10% over exactly
+  two epochs and the run stops there. `--max-hours 10.5` stays as a safety net.
+- Every 30 minutes rank 0 scores the 1,500 dev records, fits T and logs dev NLL
+  after scaling to `dev_curve.jsonl`. The weights with the lowest scaled dev NLL are
+  kept (in memory and in the checkpoint, so a resume keeps them too).
+- The final evaluation uses the best weights, saved alone as `best/state.pt`
+  (adapter + head) for Phase 5. Dev and held-out samples match run 1's exactly.
+- Selection uses scaled NLL, not raw: T is fitted at the end anyway, so raw
+  overconfidence alone shouldn't decide. Selection and the final T fit share the
+  dev records, so dev numbers are slightly optimistic; held-out isn't used for either.
+- No `--resume-search`: it can't pick up run 1's step-9,683 checkpoint by accident.
+- Cost: ~6 GPU-hours of the 18.7 left, leaving ~12h for Phase 5.
+
+Tests: `test_epochs_stop_and_best_weights_are_evaluated` (dev checked every step;
+the evaluated weights, `best/state.pt` and the reported dev NLL all match the
+curve's minimum), plus a two-process DDP run with a dev check every step.
+
 ## How to run
-Session 1: notebook *mini-jev-phase-0*, Accelerator **GPU T4 x2**, Internet on,
-**Save & Run All**.
-Session 2: **Add Input → Your Work → this notebook's session-1 version**, then
-**Save & Run All**. The log should say `resumed from … at step N`.
+Notebook *mini-jev-phase-0*, Accelerator **GPU T4 x2**, Internet on, nothing extra
+attached as input, **Save & Run All**.
 
 ## Status
 - [x] Training code, tests, Kaggle job.
-- [x] Session 1 (gate not met at the midpoint; see run log).
-- [ ] Session 2: on hold, decision pending (see run log).
+- [x] Run 1, session 1 (gate not met; overfitted; see run log). Session 2 dropped.
+- [ ] Run 2: 2 epochs, best checkpoint.
 
 ## Run log
 - **2026-10-06 05:25 UTC, session 1, attempt 1: failed in 4 minutes, ~4.5 GPU-min used.**

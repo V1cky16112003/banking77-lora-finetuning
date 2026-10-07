@@ -9,8 +9,10 @@ Current job: Phase 4 training (docs/designs/pointwise-phase4-plan.md).
 1. Build the training data from pinned sources into /tmp (not saved as output).
    Remove Kaggle's preinstalled torchao and check that LoRA can be applied
    (preflight), so an environment problem fails in seconds, not mid-launch.
-2. Train on every visible GPU with torchrun. Resumes from a previous session's
-   checkpoint if that notebook version is attached as input.
+2. Train on every visible GPU with torchrun: a fresh 2-epoch run that checks dev
+   loss every 30 minutes and evaluates the best weights (Phase 4 run 2; run 1
+   overfitted over ~4 epochs). It doesn't search /kaggle/input, so it can't
+   resume run 1's checkpoint by accident.
 3. If training fails in its first 20 minutes (almost always out of memory on the
    largest batch, which runs first), retry once with half the token budget.
 
@@ -28,9 +30,8 @@ DATA_DIR = "/tmp/pointwise-data"
 TOKEN_BUDGET = 4096
 EARLY_FAILURE_MINUTES = 20
 TRAIN_ARGS = [
-    "--resume-search", "/kaggle/input",
-    "--max-hours", "10.5",  # Kaggle stops sessions at 12h and then keeps no output
-    "--planned-hours", "21",  # two sessions
+    "--epochs", "2",  # ~4,900 steps, ~5.5h on 2x T4; sizes the LR schedule and stops there
+    "--max-hours", "10.5",  # safety: Kaggle stops sessions at 12h and then keeps no output
 ]
 
 

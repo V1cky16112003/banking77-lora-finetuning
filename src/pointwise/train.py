@@ -14,12 +14,14 @@ Built for Kaggle's limits:
   schedule.
 - The LR schedule's length is set from the measured step time and
   --planned-hours (the training time across all sessions), so cosine decay ends
-  when the planned sessions do.
+  when the planned sessions do; or from --epochs, which also stops the run there.
 - The largest batch runs first, so an out-of-memory error shows up in the first
   minute, not hours in.
 
-At the end, rank 0 scores dev and held-out sets, fits a temperature on dev, and
-writes metrics.json and the held-out predictions.
+At every checkpoint, rank 0 also scores dev (NLL after fitting T) and keeps the
+best weights so far (dev_curve.jsonl logs each check). At the end it scores dev
+and held-out sets with the best weights, fits a temperature on dev, and writes
+metrics.json, the held-out predictions and best/state.pt (adapter + head).
 
 Usage:
     torchrun --nproc_per_node 2 -m src.pointwise.train --data-dir data/pointwise --output-dir out
@@ -76,7 +78,9 @@ def parse_args(argv=None):
     p.add_argument("--max-hours", type=float, default=10.5, help="training time in this session")
     p.add_argument("--planned-hours", type=float, default=21.0, help="training time across all sessions")
     p.add_argument("--max-steps", type=int, default=None, help="stop after this global step (tests, smoke runs)")
-    p.add_argument("--checkpoint-minutes", type=float, default=30.0)
+    p.add_argument("--epochs", type=float, default=None,
+                   help="train this many epochs; sizes the LR schedule instead of --planned-hours")
+    p.add_argument("--checkpoint-minutes", type=float, default=30.0, help="also how often dev loss is checked")
     p.add_argument("--resume-search", type=Path, default=None)
     p.add_argument("--max-state", type=int, default=384)
     p.add_argument("--max-branch", type=int, default=1024, help="state + one question")
@@ -220,9 +224,10 @@ def trainable_state(model: DecisionModel) -> dict:
     return {"lora": get_peft_model_state_dict(model.backbone), "head": model.head.state_dict()}
 
 
-def save_checkpoint(path: Path, model, optimizer, scaler, step: int, total_steps: int, args) -> None:
+def save_checkpoint(path: Path, model, optimizer, scaler, step: int, total_steps: int, args, extra: dict | None = None) -> None:
     """Written to a temporary file then renamed, so a kill mid-save never leaves
-    a half-written checkpoint where the resume search would find it."""
+    a half-written checkpoint where the resume search would find it. `extra`
+    carries the best weights so far and the dev curve, so a resume keeps them."""
     path.mkdir(parents=True, exist_ok=True)
     state = {
         **trainable_state(model),
@@ -231,7 +236,13 @@ def save_checkpoint(path: Path, model, optimizer, scaler, step: int, total_steps
         "step": step,
         "total_steps": total_steps,
         "args": {k: str(v) for k, v in vars(args).items()},
+        **(extra or {}),
     }
+    _save(state, path)
+
+
+def _save(state: dict, path: Path) -> None:
+    path.mkdir(parents=True, exist_ok=True)
     tmp = path / "state.pt.tmp"
     torch.save(state, tmp)
     os.replace(tmp, path / "state.pt")
@@ -253,15 +264,21 @@ def find_checkpoint(*roots: Path | None) -> Path | None:
     return best
 
 
-def load_checkpoint(path: Path, model, optimizer, scaler) -> tuple[int, int]:
+def load_trainable(model: DecisionModel, state: dict) -> None:
     from peft import set_peft_model_state_dict
 
-    state = torch.load(path, map_location="cpu", weights_only=False)
     set_peft_model_state_dict(model.backbone, state["lora"])
     model.head.load_state_dict(state["head"])
+
+
+def load_checkpoint(path: Path, model, optimizer, scaler) -> dict:
+    """Restores model, optimiser and scaler; returns the whole state for step,
+    schedule length, best weights and dev curve."""
+    state = torch.load(path, map_location="cpu", weights_only=False)
+    load_trainable(model, state)
     optimizer.load_state_dict(state["optimizer"])
     scaler.load_state_dict(state["scaler"])
-    return state["step"], state["total_steps"]
+    return state
 
 
 # --- evaluation ------------------------------------------------------------------------
@@ -320,6 +337,19 @@ def evaluate(model, dev: list[Example], heldout: list[Example], args, out_dir: P
     return result
 
 
+def dev_check(model, dev: list[Example], args) -> dict:
+    """Dev NLL after fitting T, which is what the best checkpoint is chosen on:
+    T is fitted at the end anyway, so raw overconfidence alone shouldn't pick
+    an early checkpoint over a better-ranking later one."""
+    rows = collect_logits(model, dev, args.token_budget)
+    logits, targets = [r["logits"] for r in rows], [r["target"] for r in rows]
+    temperature = M.fit_temperature(logits, targets)
+    raw = M.summarise([M.question_scores(z, q) for z, q in zip(logits, targets)])
+    scaled = M.summarise([M.question_scores(z, q, temperature) for z, q in zip(logits, targets)])
+    return {"nll": scaled["nll"], "raw_nll": raw["nll"], "accuracy": raw["accuracy"],
+            "temperature": temperature, "ece": scaled["ece"], "raw_ece": raw["ece"]}
+
+
 def _stratified(examples: list[Example], per_source: int) -> list[Example]:
     taken: dict[str, int] = {}
     out = []
@@ -365,9 +395,11 @@ def main(argv=None) -> None:
     scaler = torch.amp.GradScaler(device.type, enabled=device.type == "cuda")
 
     step, total_steps = 0, None
+    best, curve = None, []  # best: trainable weights (on CPU) with the lowest dev NLL so far
     resume = find_checkpoint(out_dir.parent, args.resume_search)
     if resume is not None:
-        step, total_steps = load_checkpoint(resume, model, optimizer, scaler)
+        state = load_checkpoint(resume, model, optimizer, scaler)
+        step, total_steps, best, curve = state["step"], state["total_steps"], state.get("best"), state.get("curve", [])
         say(f"resumed from {resume} at step {step}, schedule length {total_steps}")
 
     ddp = (
@@ -377,6 +409,28 @@ def main(argv=None) -> None:
     )
     stream = BatchStream(train, args.token_budget, args.seed, rank, world)
     say(f"steps in epoch 0: {stream.steps_in(0)}")
+    if args.epochs is not None and total_steps is None:
+        total_steps = max(1, round(args.epochs * stream.steps_in(0)))
+        say(f"LR schedule over {total_steps} steps ({args.epochs} epochs)")
+    dev, eval_rng = [], random.Random(args.seed)  # one rng for dev then held-out: same samples as session 1
+    if rank == 0:
+        dev, _ = load_examples(args.data_dir / "dev.jsonl", tokenizer, args)
+        eval_rng.shuffle(dev)
+        dev = dev[: args.eval_dev_records]
+
+    def check_dev() -> None:
+        """Rank 0: score dev, log it, keep a CPU copy of the weights if best so far."""
+        nonlocal best
+        result = {"step": step, **dev_check(model, dev, args)}
+        curve.append(result)
+        with (out_dir / "dev_curve.jsonl").open("a", encoding="utf-8") as f:
+            f.write(json.dumps(result) + "\n")
+        if best is None or result["nll"] < best["nll"]:
+            weights = {k: {n: t.detach().cpu().clone() for n, t in v.items()} for k, v in trainable_state(model).items()}
+            best = {"step": step, "nll": result["nll"], **weights}
+        say(f"dev at step {step}: nll {result['nll']:.4f} (raw {result['raw_nll']:.4f}, T {result['temperature']:.2f}) "
+            f"acc {result['accuracy']:.4f}; best step {best['step']}")
+
     model.train()
 
     train_start = time.time()
@@ -384,7 +438,9 @@ def main(argv=None) -> None:
     window_loss, window_questions, window_start, speed_start = 0.0, 0, time.time(), None
     while True:
         out_of_time = (time.time() - train_start) / 3600 > args.max_hours
-        at_limit = args.max_steps is not None and step >= args.max_steps
+        at_limit = (args.max_steps is not None and step >= args.max_steps) or (
+            args.epochs is not None and step >= total_steps
+        )
         stop = torch.tensor([float(out_of_time or at_limit)], device=device)
         if distributed:
             dist.all_reduce(stop, op=dist.ReduceOp.MAX)  # every rank stops on the same step
@@ -432,26 +488,32 @@ def main(argv=None) -> None:
 
         if (time.time() - last_checkpoint) / 60 > args.checkpoint_minutes:
             if rank == 0:
-                save_checkpoint(out_dir / "checkpoint", model, optimizer, scaler, step, total_steps or schedule_total, args)
+                check_dev()
+                save_checkpoint(out_dir / "checkpoint", model, optimizer, scaler, step, total_steps or schedule_total,
+                                args, {"best": best, "curve": curve})
                 say(f"checkpoint at step {step}")
             if distributed:
                 dist.barrier()
             last_checkpoint = time.time()
 
     if rank == 0:
-        save_checkpoint(out_dir / "checkpoint", model, optimizer, scaler, step, total_steps or schedule_total, args)
+        if not curve or curve[-1]["step"] != step:
+            check_dev()
+        save_checkpoint(out_dir / "checkpoint", model, optimizer, scaler, step, total_steps or schedule_total,
+                        args, {"best": best, "curve": curve})
         say(f"stopped at step {step} after {(time.time() - train_start) / 3600:.2f}h of training; checkpoint saved")
-        dev, _ = load_examples(args.data_dir / "dev.jsonl", tokenizer, args)
+        # The final evaluation scores the best dev weights, which are also saved
+        # on their own (adapter + head only) for Phase 5.
+        load_trainable(model, best)
+        _save({"lora": best["lora"], "head": best["head"], "step": best["step"], "dev_nll": best["nll"]}, out_dir / "best")
+        say(f"evaluating best weights from step {best['step']} (dev nll {best['nll']:.4f})")
         heldout, _ = load_examples(args.data_dir / "heldout.jsonl", tokenizer, args)
-        rng = random.Random(args.seed)
-        rng.shuffle(dev)
-        rng.shuffle(heldout)
-        result = evaluate(
-            model, dev[: args.eval_dev_records], _stratified(heldout, args.eval_heldout_per_source), args, out_dir
-        )
-        result.update({"step": step, "train_hours_this_session": (time.time() - train_start) / 3600, "world": world})
+        eval_rng.shuffle(heldout)
+        result = evaluate(model, dev, _stratified(heldout, args.eval_heldout_per_source), args, out_dir)
+        result.update({"step": step, "best_step": best["step"], "dev_curve": curve,
+                       "train_hours_this_session": (time.time() - train_start) / 3600, "world": world})
         (out_dir / "metrics.json").write_text(json.dumps(result, indent=2))
-        say(json.dumps({"step": step, "temperature": result["temperature"], "gate": result["gate"],
+        say(json.dumps({"step": step, "best_step": best["step"], "temperature": result["temperature"], "gate": result["gate"],
                         "dev_all": result["dev"]["scaled"]["all"], "heldout": {k: v.get("accuracy") for k, v in result["heldout"]["scaled"].items()}}, indent=2))
     if distributed:
         dist.barrier()
